@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "channel": {
+      "title": "Channel",
+      "description": "A TV channel stream.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the channel."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the channel."
+        },
+        "logo": {
+          "type": "string",
+          "description": "URL to the channel's logo image."
+        },
+        "category": {
+          "type": "string",
+          "description": "The category of the channel, e.g., News, Entertainment."
+        },
+        "url": {
+          "type": "string",
+          "description": "The HLS stream URL."
+        }
+      },
+      "required": ["name", "url"]
+    },
+    "user": {
+      "title": "User",
+      "description": "A user profile with personalized settings and favorites.",
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "favoriteChannels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "autoPlayNext": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/channels/{channelId}": {
+      "schema": {
+        "$ref": "#/entities/channel"
+      },
+      "description": "A collection of all available TV channels."
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/user"
+      },
+      "description": "User profile collection containing favorites and preferences."
+    }
+  }
+}
