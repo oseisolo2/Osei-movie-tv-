@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove, addDoc } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
-import { db, auth } from './lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
 import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X } from 'lucide-react';
 
@@ -65,8 +65,7 @@ export default function App() {
       });
       log(`Toggled favorite for ${channel.name}`);
     } catch (err: any) {
-      log(`Failed to update favorite: ${err.message}`);
-      alert(`Failed to update favorite: ${err.message}`);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
     }
   };
 
@@ -88,8 +87,7 @@ export default function App() {
       setShowAddForm(false);
       log(`Successfully added channel: ${newChannel.name}`);
     } catch (err: any) {
-      log(`Failed to add channel: ${err.message}`);
-      alert(`Error: ${err.message}`);
+      handleFirestoreError(err, OperationType.CREATE, 'channels');
     } finally {
       setAdding(false);
     }
@@ -98,24 +96,42 @@ export default function App() {
   useEffect(() => {
     let unsubscribeProfile: () => void = () => {};
 
+    const testConnection = async () => {
+      try {
+        const { getDocFromServer, doc } = await import('firebase/firestore');
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if(error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         log(`User logged in: ${currentUser.email}`);
         
         const profileRef = doc(db, 'users', currentUser.uid);
-        unsubscribeProfile = onSnapshot(profileRef, (docSnap) => {
-          if (docSnap.exists()) {
-            setUserProfile(docSnap.data() as UserProfile);
-          } else {
-            const defaultProfile: UserProfile = {
-              favoriteChannels: [],
-              settings: { autoPlayNext: true }
-            };
-            setDoc(profileRef, defaultProfile).catch(err => log(`Error creating profile: ${err.message}`));
-            setUserProfile(defaultProfile);
+        unsubscribeProfile = onSnapshot(
+          profileRef, 
+          (docSnap) => {
+            if (docSnap.exists()) {
+              setUserProfile(docSnap.data() as UserProfile);
+            } else {
+              const defaultProfile: UserProfile = {
+                favoriteChannels: [],
+                settings: { autoPlayNext: true }
+              };
+              setDoc(profileRef, defaultProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}`));
+              setUserProfile(defaultProfile);
+            }
+          },
+          (error) => {
+             handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
           }
-        });
+        );
       } else {
         log("User logged out");
         setUserProfile(null);
@@ -124,6 +140,7 @@ export default function App() {
     });
 
     log("Firebase connected successfully.");
+
     const unsubscribeDb = onSnapshot(
       collection(db, 'channels'),
       (snapshot) => {
@@ -144,16 +161,22 @@ export default function App() {
         log(`Successfully loaded ${snapshot.size} channels.`);
       },
       (err) => {
-        log("Database Error: " + err.message);
-        setError(`Failed to load channels: ${err.message}`);
-        setLoading(false);
+        handleFirestoreError(err, OperationType.LIST, 'channels');
       }
     );
 
+    const authUnsub = unsubscribeAuth;
+    const profUnsub = unsubscribeProfile;
+    const dbUnsub = unsubscribeDb;
+
     return () => {
-      unsubscribeAuth();
-      unsubscribeProfile();
-      unsubscribeDb();
+      authUnsub();
+      profUnsub();
+      dbUnsub();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
   }, []);
 
@@ -203,21 +226,57 @@ export default function App() {
     playStream(filteredChannels[nextIndex]);
   };
 
-  const playStream = (channel: Channel) => {
-    const video = videoRef.current;
-    if (!video) return;
+  const isYouTube = currentChannel?.url.includes('youtube.com') || currentChannel?.url.includes('youtu.be');
 
+  const getYouTubeIframeUrl = (url: string) => {
+    try {
+      const urlObj = new URL(url);
+      if (url.includes('youtube.com/channel/')) {
+        const channelId = url.split('youtube.com/channel/')[1].split('/')[0].split('?')[0];
+        return `https://www.youtube.com/embed/live_stream?channel=${channelId}&autoplay=1`;
+      } else if (urlObj.searchParams.get('v')) {
+        return `https://www.youtube.com/embed/${urlObj.searchParams.get('v')}?autoplay=1`;
+      } else if (url.includes('youtu.be/')) {
+        const videoId = url.split('youtu.be/')[1].split('?')[0];
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      } else if (url.includes('youtube.com/embed/')) {
+        return url + (url.includes('?') ? '&autoplay=1' : '?autoplay=1');
+      }
+    } catch (e) {
+      // Ignore URL parse errors
+    }
+    return url; // fallback
+  };
+
+  const playStream = (channel: Channel) => {
     setCurrentChannel(channel);
     setQualities([]);
     setSelectedQuality(-1);
     log(`Loading: ${channel.name}`);
+    
+    // Check if it's YouTube, if it is, we don't need to load Hls, just let the iframe render
+    if (channel.url.includes('youtube.com') || channel.url.includes('youtu.be')) {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
 
     if (Hls.isSupported()) {
       if (hlsRef.current) {
         hlsRef.current.destroy();
       }
       
-      const hls = new Hls();
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90
+      });
       hlsRef.current = hls;
       
       hls.loadSource(channel.url);
@@ -256,7 +315,7 @@ export default function App() {
         <header className="p-4 border-b border-gray-800 flex justify-between items-center bg-black sticky top-0 z-50">
           <div className="flex items-center gap-2">
             <Tv className="text-red-600 w-6 h-6" />
-            <h1 className="text-red-600 font-bold text-xl uppercase tracking-tighter">Osei Movie TV</h1>
+            <h1 className="text-red-600 font-bold text-xl uppercase tracking-tighter">Osei tv</h1>
           </div>
           <div className="flex gap-2 items-center">
             {user ? (
@@ -325,7 +384,7 @@ export default function App() {
                       if (user) {
                         const { doc, updateDoc } = await import('firebase/firestore');
                         updateDoc(doc(db, 'users', user.uid), { displayName: newName })
-                          .catch((e) => log(`Error saving name: ${e.message}`));
+                          .catch((e) => handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`));
                       }
                     }}
                     className="w-full bg-black border border-gray-700 rounded-lg p-3 text-sm text-white focus:border-red-500 outline-none"
@@ -349,7 +408,7 @@ export default function App() {
                         if (user) {
                           const { doc, updateDoc } = await import('firebase/firestore');
                           updateDoc(doc(db, 'users', user.uid), { 'settings.autoPlayNext': newVal })
-                            .catch((error) => log(`Error saving settings: ${error.message}`));
+                            .catch((error) => handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`));
                         }
                       }}
                       className="w-4 h-4 cursor-pointer accent-red-600"
@@ -445,21 +504,58 @@ export default function App() {
         )}
 
         {/* Video Player Section */}
-        <div className="aspect-video bg-[#111] w-full sticky top-[60px] z-40 shadow-2xl">
-          <video 
-            ref={videoRef}
-            className="w-full h-full" 
-            controls 
-            autoPlay 
-            playsInline
-            onEnded={playNextChannel}
-          />
+        <div className="aspect-video bg-[#111] w-full sticky top-[60px] z-40 shadow-2xl relative">
+          {isYouTube ? (
+            <div className="w-full h-full relative">
+              <iframe
+                src={getYouTubeIframeUrl(currentChannel?.url || '')}
+                className="w-full h-full absolute inset-0 z-10"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+              <div className="absolute inset-x-0 bottom-0 z-20 bg-black/80 text-white text-xs p-2 flex justify-between items-center opacity-0 hover:opacity-100 transition-opacity">
+                <span>If the video is unavailable due to restrictions, watch it directly on YouTube:</span>
+                <a 
+                  href={currentChannel?.url} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="bg-red-600 hover:bg-red-500 px-3 py-1 rounded font-bold transition"
+                >
+                  Watch on YouTube
+                </a>
+              </div>
+            </div>
+          ) : (
+            <video 
+              ref={videoRef}
+              className="w-full h-full absolute inset-0" 
+              controls 
+              autoPlay 
+              playsInline
+              onEnded={playNextChannel}
+            />
+          )}
         </div>
 
         {/* Debugging Output */}
         {showDebug && (
           <div className="font-mono text-[10px] text-[#ff5555] bg-[#1a1a1a] p-2.5 mt-2.5 rounded mx-4 max-h-40 overflow-y-auto">
             {debugLogs.map((lg, i) => <div key={i}>{lg}</div>)}
+          </div>
+        )}
+
+        {isYouTube && currentChannel && (
+          <div className="bg-zinc-800 border-b border-gray-700 px-4 py-3 flex justify-between items-center text-sm">
+            <span className="text-gray-300 text-xs sm:text-sm">Video unavailable? The broadcaster may have disabled embedding.</span>
+            <a 
+              href={currentChannel.url} 
+              target="_blank" 
+              rel="noreferrer"
+              className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded-full font-semibold transition whitespace-nowrap text-xs sm:text-sm ml-2"
+            >
+              Watch on YouTube
+            </a>
           </div>
         )}
 
@@ -532,7 +628,7 @@ export default function App() {
                   >
                     <Star className="w-3 h-3" fill={selectedCategory === 'Favorites' ? "currentColor" : "none"} /> Favorites
                   </button>
-                  {['All', ...new Set(channels.map(c => c.category || 'General'))].map(category => (
+                  {['All', ...Array.from(new Set(channels.map(c => c.category || 'General')))].map(category => (
                     <button
                       key={category}
                       onClick={() => setSelectedCategory(category)}
