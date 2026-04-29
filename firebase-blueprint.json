@@ -47,6 +47,18 @@
           }
         }
       }
+    },
+    "chatMessage": {
+      "title": "Chat Message",
+      "description": "A live chat message sent to a channel.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "userId", "displayName", "timestamp"]
     }
   },
   "firestore": {
@@ -55,6 +67,12 @@
         "$ref": "#/entities/channel"
       },
       "description": "A collection of all available TV channels."
+    },
+    "/channels/{channelId}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/chatMessage"
+      },
+      "description": "Real-time chat messages for a specific channel."
     },
     "/users/{userId}": {
       "schema": {

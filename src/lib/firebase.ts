@@ -67,7 +67,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   
   if (errorMessage.includes('permission-denied') || errorMessage.includes('Missing or insufficient permissions')) {
     console.error('Firestore Error: ', JSON.stringify(errInfo));
-    throw new Error(JSON.stringify(errInfo));
+    // Provide a helpful log for the user
+    console.error('ACTION REQUIRED: Your Firestore Security Rules are blocking access. Please copy the rules from `firestore.rules` and paste them into your Firebase Console.');
   } else {
     console.warn(`Firestore Warning (${operationType}): ${errorMessage}`);
   }
