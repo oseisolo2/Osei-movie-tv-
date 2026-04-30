@@ -1,20 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+🎬 Osei Movie & TV App
 
-# Run and deploy your AI Studio app
+A modern streaming-style web app with Electronic Program Guide (EPG) support.
 
-This contains everything you need to run your app locally.
+🚀 Features
 
-View your app in AI Studio: https://ai.studio/apps/df256a13-6751-446a-be24-749d85f97841
+- 📺 Live TV-style interface
+- 🗓️ Electronic Program Guide (EPG)
+- 🔥 Firebase integration
+- 💡 Clean and responsive UI
 
-## Run Locally
+🛠️ Tech Stack
 
-**Prerequisites:**  Node.js
+- React + TypeScript
+- Firebase
+- Vite
 
+📂 Project Structure
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- "components/" → UI components
+- "lib/" → Logic (EPG + Firebase)
+- "App.tsx" → Main app
+
+⚙️ Setup
+
+npm install
+npm run dev
+
+🌐 Deployment
+
+You can deploy using:
+
+- Vercel
+- Netlify
+- Firebase Hosting
+
+📌 Author
+
+Osei
