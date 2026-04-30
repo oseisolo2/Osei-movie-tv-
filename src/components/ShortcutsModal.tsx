@@ -9,6 +9,7 @@ export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {
     { key: "Space or K", action: "Play / Pause" },
     { key: "M", action: "Mute / Unmute" },
     { key: "F", action: "Toggle Fullscreen" },
+    { key: "I", action: "Picture in Picture" },
     { key: "Up / Down", action: "Volume Up / Down" },
     { key: "Left / P", action: "Previous Channel" },
     { key: "Right / N", action: "Next Channel" },

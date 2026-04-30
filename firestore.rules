@@ -72,6 +72,11 @@ service cloud.firestore {
                     
       allow delete: if false; // Only admins should delete channels ideally, disabled for now
       
+      match /typing/{userId} {
+        allow read: if true;
+        allow write: if isSignedIn() && request.auth.uid == userId;
+      }
+      
       match /messages/{messageId} {
         allow read: if true;
         allow list: if true;

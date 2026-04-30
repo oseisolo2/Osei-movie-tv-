@@ -3,7 +3,7 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
-import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2 } from 'lucide-react';
+import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling } from 'lucide-react';
 import AuthModal from './components/AuthModal';
 import TermsModal from './components/TermsModal';
 import PrivacyModal from './components/PrivacyModal';
@@ -64,11 +64,15 @@ export default function App() {
   const [qualities, setQualities] = useState<any[]>([]);
   const [selectedQuality, setSelectedQuality] = useState<number>(-1);
   const [volume, setVolume] = useState<number>(1);
+  const [brightness, setBrightness] = useState<number>(100);
+  const [objectFit, setObjectFit] = useState<"contain" | "cover" | "fill">("contain");
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isCasting, setIsCasting] = useState<boolean>(false);
   const [castAvailable, setCastAvailable] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const currentChannelRef = useRef<Channel | null>(null);
@@ -328,6 +332,38 @@ export default function App() {
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/France_24_logo_%282024%29.svg/512px-France_24_logo_%282024%29.svg.png'
       },
       {
+        id: 'news_bloomberg',
+        name: 'Bloomberg TV+',
+        url: 'https://live.bloomberg.tv/bloomberg/playlist.m3u8',
+        category: 'News',
+        description: 'Bloomberg Global Financial News',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloomberg_Television_logo.svg/512px-Bloomberg_Television_logo.svg.png'
+      },
+      {
+        id: 'news_abc',
+        name: 'ABC News Live',
+        url: 'https://content.uplynk.com/channel/3324f2467c414329b3b0cc5cd987b6be.m3u8',
+        category: 'News',
+        description: 'ABC News Live Stream',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/ABC_News_logo_2021.svg/512px-ABC_News_logo_2021.svg.png'
+      },
+      {
+        id: 'news_dw',
+        name: 'DW English',
+        url: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8',
+        category: 'News',
+        description: 'Deutsche Welle English Live',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/DW_logo_%282012%29.svg/512px-DW_logo_%282012%29.svg.png'
+      },
+      {
+        id: 'news_cna',
+        name: 'CNA',
+        url: 'https://d2e1asnsl7br7b.cloudfront.net/7782e205e72f43aeb4a480973e06f12a/index.m3u8',
+        category: 'News',
+        description: 'Channel NewsAsia Live',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/CNA_logo_%282019%29.svg/512px-CNA_logo_%282019%29.svg.png'
+      },
+      {
         id: 'local_ent_1',
         name: 'Red Bull TV',
         url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
@@ -336,12 +372,36 @@ export default function App() {
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Red_Bull_TV_logo.svg/512px-Red_Bull_TV_logo.svg.png'
       },
       {
+        id: 'ent_ign',
+        name: 'IGN TV',
+        url: 'https://ign-us.amagi.tv/playlist.m3u8',
+        category: 'Entertainment',
+        description: 'IGN TV - Gaming & Pop Culture',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/IGN_logo_%28current%29.svg/512px-IGN_logo_%28current%29.svg.png'
+      },
+      {
+        id: 'ent_tastemade',
+        name: 'Tastemade',
+        url: 'https://tastemade-tastemade-2-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Lifestyle',
+        description: 'Tastemade Food & Travel',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Tastemade_logo.svg/512px-Tastemade_logo.svg.png'
+      },
+      {
         id: 'local_edu_1',
         name: 'NASA TV',
         url: 'https://ntv1.akamaized.net/hls/live/2014075/NASA-NTV1-HLS/master.m3u8',
-        category: 'Education',
+        category: 'Science',
         description: 'NASA TV HD Live',
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/NASA_logo.svg/512px-NASA_logo.svg.png'
+      },
+      {
+        id: 'nature_vision',
+        name: 'NatureVision TV',
+        url: 'https://naturevision-us.amagi.tv/playlist.m3u8',
+        category: 'Nature',
+        description: 'NatureVision TV 24/7',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Nature_Vision_TV_logo.png/512px-Nature_Vision_TV_logo.png'
       },
       {
         id: 'local_sports_1',
@@ -350,6 +410,14 @@ export default function App() {
         category: 'Sports',
         description: 'PGA Tour Live',
         logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/9/9c/PGA_Tour_logo.svg/512px-PGA_Tour_logo.svg.png'
+      },
+      {
+        id: 'music_vevo',
+        name: 'Vevo Pop',
+        url: 'https://vevo-pop-us.amagi.tv/playlist.m3u8',
+        category: 'Music',
+        description: 'Vevo Pop Music Videos',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Vevo_logo.svg/512px-Vevo_logo.svg.png'
       },
       {
         id: 'local_ent_2',
@@ -506,6 +574,12 @@ export default function App() {
             }
           }
           break;
+        case 'i':
+          e.preventDefault();
+          if (video) {
+            togglePiP();
+          }
+          break;
         case 'arrowup':
           e.preventDefault();
           if (video) {
@@ -575,17 +649,22 @@ export default function App() {
     playStream(filteredChannels[prevIndex]);
   };
 
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 5000); // Hide after 5 seconds
+  };
+
   const togglePiP = async () => {
     if (!videoRef.current) return;
     try {
       // Check feature policy and browser support
       if (typeof document.pictureInPictureEnabled === 'undefined' || !document.pictureInPictureEnabled) {
-        showError('Picture-in-Picture is not supported in this browser or requires opening the app in a new tab.');
+        showToast('PiP is unavailable in this view. Try opening the app in a new tab.');
         return;
       }
       
       if (videoRef.current.readyState === 0) {
-        showError('Please wait for the video to load before starting Picture-in-Picture.');
+        showToast('Please wait for the video to load before starting Picture-in-Picture.');
         return;
       }
       
@@ -596,7 +675,21 @@ export default function App() {
       }
     } catch (error) {
       console.error('Failed to enter/exit PiP:', error);
-      showError('Picture-in-Picture failed. Try opening the app in a new tab.');
+      showToast('Picture-in-Picture failed. Try opening the app in a new tab.');
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    if (!videoRef.current) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await videoRef.current.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('Failed to enter/exit fullscreen:', error);
+      showToast('Fullscreen failed. Try opening the app in a new tab.');
     }
   };
 
@@ -612,6 +705,42 @@ export default function App() {
     }
     if (newVolume === 0) {
       setIsMuted(true);
+    }
+  };
+
+  const handleBrightnessChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBrightness(parseInt(e.target.value));
+  };
+
+  const toggleObjectFit = () => {
+    setObjectFit(current => {
+      if (current === "contain") return "cover";
+      if (current === "cover") return "fill";
+      return "contain";
+    });
+  };
+
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play();
+        setIsPlaying(true);
+      } else {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+  };
+
+  const seekForward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime += 10;
+    }
+  };
+
+  const seekBackward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime -= 10;
     }
   };
 
@@ -665,6 +794,7 @@ export default function App() {
     setSelectedQuality(-1);
     setIsBuffering(true);
     setStreamError(null);
+    setToastMessage(null);
     
     // Apply current volume & playback rate
     if (videoRef.current) {
@@ -724,6 +854,9 @@ export default function App() {
       });
       hlsRef.current = hls;
       
+      let retryCount = 0;
+      const MAX_RETRIES = 5;
+      
       hls.loadSource(channel.url);
       hls.attachMedia(video);
       
@@ -742,20 +875,51 @@ export default function App() {
         video.play().catch(e => log(`Play Error: ${e.message}`));
       });
       
+      let toastTimeout: NodeJS.Timeout;
+
       hls.on(Hls.Events.ERROR, (_event, data) => {
+        log(`HLS Error: ${data.type} (fatal: ${data.fatal})`);
+
+        if (!data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            setToastMessage("Experiencing network instability...");
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+              setToastMessage(null);
+            }, 3000);
+          }
+          return;
+        }
+
         if (data.fatal) {
-          log(`HLS Error: ${data.type}`);
+          if (retryCount >= MAX_RETRIES) {
+            hls.destroy();
+            setStreamError("This channel is currently unavailable after multiple attempts.");
+            setIsBuffering(false);
+            return;
+          }
+          retryCount++;
+          
+          const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponental backoff: 2s, 4s, 8s, 10s...
+          
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              // try to recover network error
-              log("fatal network error encountered, try to recover");
-              setStreamError("Network error. Retrying...");
-              hls.startLoad();
+              log(`fatal network error encountered, try to recover in ${backoffDelay}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+              setStreamError(`Network error. Retrying in ${backoffDelay/1000}s... (${retryCount}/${MAX_RETRIES})`);
+              setTimeout(() => {
+                if (hlsRef.current === hls) {
+                  hls.startLoad();
+                }
+              }, backoffDelay);
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              log("fatal media error encountered, try to recover");
-              setStreamError("Media error. Retrying...");
-              hls.recoverMediaError();
+              log(`fatal media error encountered, try to recover in ${backoffDelay}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+              setStreamError(`Media error. Retrying in ${backoffDelay/1000}s... (${retryCount}/${MAX_RETRIES})`);
+              setTimeout(() => {
+                if (hlsRef.current === hls) {
+                  hls.recoverMediaError();
+                }
+              }, backoffDelay);
               break;
             default:
               // cannot recover
@@ -771,9 +935,11 @@ export default function App() {
       video.addEventListener('loadedmetadata', () => {
         video.play().catch(e => log(`Play Error: ${e.message}`));
       });
+      video.onerror = () => {
+        setStreamError("This channel is currently unavailable or doesn't work (fallback player error).");
+        setIsBuffering(false);
+      };
     }
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleQualityChange = (levelIndex: number) => {
@@ -813,32 +979,39 @@ export default function App() {
             <Tv className="text-red-600 w-6 h-6" />
             <h1 className="text-red-600 font-bold text-xl uppercase tracking-tighter">Osei tv</h1>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center overflow-x-auto no-scrollbar pb-1 -mb-1">
             {castAvailable && (
               <button
                 onClick={() => {
                   // @ts-ignore
                   if (window.cast?.framework) {
                     // @ts-ignore
-                    window.cast.framework.CastContext.getInstance().requestSession();
+                    const castSession = window.cast.framework.CastContext.getInstance().getCurrentSession();
+                    if (castSession) {
+                      // @ts-ignore
+                      castSession.endSession(true);
+                    } else {
+                      // @ts-ignore
+                      window.cast.framework.CastContext.getInstance().requestSession();
+                    }
                   }
                 }}
-                className={`text-[10px] px-3 py-1 rounded transition flex items-center gap-1 hidden sm:flex border ${isCasting ? 'bg-red-600 border-red-500 hover:bg-red-700 hover:border-red-600' : 'bg-zinc-800 border-gray-700 hover:bg-zinc-700 hover:border-gray-500'}`}
+                className={`shrink-0 text-[10px] px-3 py-1 rounded transition flex items-center gap-1 border ${isCasting ? 'bg-red-600 border-red-500 hover:bg-red-700 hover:border-red-600 shadow-[0_0_15px_rgba(220,38,38,0.5)]' : 'bg-zinc-800 border-gray-700 hover:bg-zinc-700 hover:border-gray-500'}`}
                 title={isCasting ? "Stop Casting" : "Cast to TV"}
               >
-                <Cast className="w-3 h-3" /> CAST
+                <Cast className={`w-3 h-3 ${isCasting ? 'animate-pulse' : ''}`} /> {isCasting ? "STOP CASTING" : "CAST"}
               </button>
             )}
             <button
               onClick={() => setShowEPGModal(true)}
-              className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 hidden sm:flex border border-gray-700 hover:border-gray-500 text-yellow-500 hover:text-yellow-400 font-bold"
+              className="shrink-0 text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 border border-gray-700 hover:border-gray-500 text-yellow-500 hover:text-yellow-400 font-bold"
               title="TV Guide"
             >
               <ListVideo className="w-3 h-3" /> TV GUIDE
             </button>
             <button
               onClick={() => setShowShortcutsModal(true)}
-              className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 hidden sm:flex border border-gray-700 hover:border-gray-500"
+              className="shrink-0 text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 border border-gray-700 hover:border-gray-500"
               title="Keyboard Shortcuts"
             >
               <Keyboard className="w-3 h-3" /> SHORTCUTS
@@ -850,35 +1023,35 @@ export default function App() {
                 </span>
                 <button 
                   onClick={() => setShowAddForm(!showAddForm)} 
-                  className="text-[10px] bg-red-800 hover:bg-red-700 font-bold px-3 py-1 rounded transition"
+                  className="shrink-0 text-[10px] bg-red-800 hover:bg-red-700 font-bold px-3 py-1 rounded transition whitespace-nowrap"
                 >
                   {showAddForm ? 'CANCEL ADD' : '+ ADD CHANNEL'}
                 </button>
                 <button
                   onClick={() => setShowProfileModal(true)}
-                  className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1"
+                  className="shrink-0 text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 whitespace-nowrap"
                 >
-                  <Settings className="w-3 h-3" /> SETTINGS
+                  <Settings className="w-3 h-3" /> <span className="hidden sm:inline">SETTINGS</span>
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1"
+                  className="shrink-0 text-[10px] bg-zinc-800 hover:bg-zinc-700 px-3 py-1 rounded transition flex items-center gap-1 whitespace-nowrap"
                 >
-                  <LogOut className="w-3 h-3" /> LOGOUT
+                  <LogOut className="w-3 h-3" /> <span className="hidden sm:inline">LOGOUT</span>
                 </button>
               </div>
             ) : (
               <button
                 onClick={handleLogin}
-                className="text-[10px] bg-blue-600 hover:bg-blue-500 font-bold px-3 py-1 rounded transition flex items-center gap-1"
+                className="shrink-0 text-[10px] bg-blue-600 hover:bg-blue-500 font-bold px-3 py-1 rounded transition flex items-center gap-1 whitespace-nowrap"
               >
-                <LogIn className="w-3 h-3" /> LOG IN TO TV
+                <LogIn className="w-3 h-3" /> LOG IN
               </button>
             )}
             
             <button 
               onClick={() => setShowDebug(!showDebug)} 
-              className="text-[10px] bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded transition ml-1"
+              className="shrink-0 text-[10px] bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded transition ml-1"
             >
               DEBUG
             </button>
@@ -1176,14 +1349,27 @@ export default function App() {
             <>
               <video 
                 ref={videoRef}
-                className="w-full h-full absolute inset-0" 
+                className="w-full h-full absolute inset-0 cursor-pointer" 
                 controls 
                 autoPlay 
                 playsInline
+                style={{ filter: `brightness(${brightness}%)`, objectFit }}
                 crossOrigin="anonymous"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleMute();
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  toggleFullscreen();
+                }}
                 onEnded={() => playNextChannel(true)}
                 onWaiting={() => setIsBuffering(true)}
-                onPlaying={() => setIsBuffering(false)}
+                onPlaying={() => {
+                  setIsBuffering(false);
+                  setIsPlaying(true);
+                }}
+                onPause={() => setIsPlaying(false)}
                 onCanPlay={() => setIsBuffering(false)}
                 onError={() => {
                   setStreamError("This channel is currently unavailable or doesn't work.");
@@ -1196,6 +1382,11 @@ export default function App() {
                     <span className="text-red-500 font-bold text-xl">!</span>
                   </span>
                   <p className="text-white text-center font-medium">{streamError}</p>
+                </div>
+              )}
+              {toastMessage && !isCasting && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-zinc-800/95 border border-zinc-700 text-white text-xs font-bold px-3 py-2 rounded shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
+                  {toastMessage}
                 </div>
               )}
               {isBuffering && !isCasting && !streamError && (
@@ -1291,13 +1482,29 @@ export default function App() {
 
             {/* Picture-in-Picture Button */}
             {!isYouTube && currentChannel && (
-              <button 
-                onClick={togglePiP}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs font-bold uppercase transition"
-                title="Picture in Picture"
-              >
-                <Square className="w-4 h-4" /> PiP
-              </button>
+              <>
+                <button 
+                  onClick={togglePiP}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs font-bold uppercase transition"
+                  title="Picture in Picture"
+                >
+                  <PictureInPicture className="w-4 h-4" /> PiP
+                </button>
+                <button 
+                  onClick={toggleFullscreen}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs font-bold uppercase transition"
+                  title="Fullscreen"
+                >
+                  <Maximize className="w-4 h-4" /> Fullscreen
+                </button>
+                <button 
+                  onClick={toggleObjectFit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs font-bold uppercase transition"
+                  title={`Resize (current: ${objectFit})`}
+                >
+                  <Scaling className="w-4 h-4" /> {objectFit}
+                </button>
+              </>
             )}
 
             {/* Share Button */}
@@ -1327,8 +1534,37 @@ export default function App() {
               </button>
             </div>
           
+          {/* Media Transport Controls */}
+          {!isYouTube && currentChannel && (
+            <div className="flex bg-black rounded-lg border border-gray-700 p-0.5 shrink-0">
+              <button 
+                onClick={seekBackward}
+                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                title="Rewind 10s"
+              >
+                <Rewind className="w-5 h-5" />
+              </button>
+              <div className="w-px bg-gray-700 my-1"></div>
+              <button 
+                onClick={togglePlayPause}
+                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                title="Play/Pause"
+              >
+                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
+              </button>
+              <div className="w-px bg-gray-700 my-1"></div>
+              <button 
+                onClick={seekForward}
+                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                title="Forward 10s"
+              >
+                <FastForward className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
           {/* Volume Control */}
-          <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700 w-32 sm:w-40 shrink-0">
+          <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700 w-28 sm:w-32 shrink-0">
             <button onClick={toggleMute} className="text-gray-400 hover:text-white transition">
               {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -1342,6 +1578,23 @@ export default function App() {
               className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500"
             />
           </div>
+          
+          {/* Brightness Control */}
+          {!isYouTube && currentChannel && (
+            <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700 w-28 sm:w-32 shrink-0" title={`Brightness: ${brightness}%`}>
+              <Sun className="w-4 h-4 text-gray-400" />
+              <input 
+                type="range" 
+                min="20" 
+                max="200" 
+                step="1" 
+                value={brightness} 
+                onChange={handleBrightnessChange}
+                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-400"
+              />
+              <span className="text-[10px] font-bold text-gray-400 w-6 text-right leading-none">{brightness}%</span>
+            </div>
+          )}
 
           {/* Playback Speed Selector */}
           {!isYouTube && currentChannel && (
@@ -1431,7 +1684,7 @@ export default function App() {
                 </div>
             </div>
             
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3">
               {loading ? (
                 <div className="flex justify-center p-10">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
