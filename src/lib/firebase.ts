@@ -2,13 +2,15 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAnalytics } from "firebase/analytics";
-import firebaseConfig from '../../firebase-applet-config.json';
+import configData from '../../firebase-applet-config.json';
+
+const firebaseConfig = (configData as any).default || configData;
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 // Initialize Analytics only in client-side environments
-export const analytics = typeof window !== "undefined" && typeof (firebaseConfig as any).measurementId === 'string' && (firebaseConfig as any).measurementId !== "" ? getAnalytics(app) : null;
+export const analytics = typeof window !== "undefined" && typeof firebaseConfig.measurementId === 'string' && firebaseConfig.measurementId !== "" ? getAnalytics(app) : null;
 
 export enum OperationType {
   CREATE = 'create',

@@ -1,63 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, Tv } from 'lucide-react';
+import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from '../lib/epg';
 
 interface Channel {
   id: string;
   name: string;
   logo?: string;
 }
-
-interface Program {
-  title: string;
-  startTime: Date;
-  endTime: Date;
-  description: string;
-}
-
-// Deterministically generate a schedule for a given channel based on the current date
-const generateSchedule = (channelId: string, currentDay: Date): Program[] => {
-  const seed = channelId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  
-  const shows = [
-    "Morning News", "Breakfast Show", "Daily Debate", "Movie: Action Heroes",
-    "Docuseries: Planet Earth", "Cooking with Chef", "Afternoon Drama", "Sports Highlights",
-    "Evening News", "Primetime Movie", "Late Night Talk Show", "Music Videos",
-    "Special Report", "Sitcom Re-runs", "Reality TV Hour", "Tech Review"
-  ];
-  
-  const schedule: Program[] = [];
-  
-  // Start from 00:00 today
-  const startOfDay = new Date(currentDay);
-  startOfDay.setHours(0, 0, 0, 0);
-  
-  // Generate 24 hours of programming (e.g. 1-2 hour slots)
-  let currentTime = new Date(startOfDay);
-  const endOfDay = new Date(startOfDay);
-  endOfDay.setHours(23, 59, 59, 999);
-  
-  let i = 0;
-  while (currentTime < endOfDay) {
-    const showSeed = (seed + i + currentTime.getHours()) % shows.length;
-    let durationHours = (showSeed % 2 === 0) ? 1 : 2; // 1 or 2 hour shows
-    if (showSeed % 3 === 0) durationHours = 0.5; // Some 30 min shows
-    
-    const showEndTime = new Date(currentTime);
-    showEndTime.setMinutes(showEndTime.getMinutes() + (durationHours * 60));
-    
-    schedule.push({
-      title: shows[showSeed],
-      startTime: new Date(currentTime),
-      endTime: showEndTime,
-      description: `Watch ${shows[showSeed]} live on our network.`
-    });
-    
-    currentTime = showEndTime;
-    i++;
-  }
-  
-  return schedule;
-};
 
 interface EPGModalProps {
   channels: Channel[];
@@ -83,15 +32,7 @@ const EPGModal: React.FC<EPGModalProps> = ({ channels, onClose, onSelectChannel,
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
-  // Find currently playing
-  const getCurrentlyPlaying = (schedule: Program[]) => {
-    return schedule.find(p => currentTime >= p.startTime && currentTime < p.endTime);
-  };
-  
-  const getUpNext = (schedule: Program[]) => {
-    return schedule.find(p => p.startTime >= currentTime);
-  };
+
 
   return (
     <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4 md:p-8 animate-in fade-in zoom-in-95 duration-200">

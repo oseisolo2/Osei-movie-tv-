@@ -4,6 +4,7 @@ import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut 
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
 import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling } from 'lucide-react';
+import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './lib/epg';
 import AuthModal from './components/AuthModal';
 import TermsModal from './components/TermsModal';
 import PrivacyModal from './components/PrivacyModal';
@@ -1432,14 +1433,40 @@ export default function App() {
             <h2 className="text-xl font-bold flex items-center gap-2">
               {currentChannel ? currentChannel.name : 'Select a Channel'}
             </h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <p className="text-green-500 text-xs font-bold uppercase tracking-widest">
-                Live Now
-              </p>
+            <div className="flex flex-col gap-1 mt-1">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <p className="text-green-500 text-xs font-bold uppercase tracking-widest">
+                  Live Now
+                </p>
+                {currentChannel && (() => {
+                  const schedule = generateSchedule(currentChannel.id, new Date());
+                  const playingNow = getCurrentlyPlaying(schedule);
+                  if (playingNow) {
+                    return (
+                      <span className="bg-zinc-800 text-gray-300 text-xs px-2 py-0.5 rounded border border-gray-700 truncate max-w-xs md:max-w-md">
+                        <span className="text-white font-semibold">{playingNow.title}</span> • {playingNow.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {playingNow.endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+              {currentChannel && (() => {
+                const schedule = generateSchedule(currentChannel.id, new Date());
+                const nextUp = getUpNext(schedule);
+                if (nextUp) {
+                  return (
+                    <div className="text-xs text-gray-500 pl-4 mt-0.5 max-w-xl truncate">
+                      Up Next: <span className="text-gray-400">{nextUp.title}</span> at {nextUp.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
             {currentChannel?.description && (
               <p className="text-sm text-gray-400 mt-3 max-w-xl line-clamp-2">{currentChannel.description}</p>
@@ -1516,49 +1543,51 @@ export default function App() {
               <Share2 className="w-4 h-4" /> Share
             </button>
 
-            <div className="flex bg-black rounded-lg border border-gray-700 p-0.5">
+          {/* Media Transport Controls */}
+          {currentChannel && (
+            <div className="flex bg-black rounded-lg border border-gray-700 p-0.5 shrink-0">
               <button 
                 onClick={playPrevChannel}
-                className="p-2 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white flex items-center gap-1 text-xs font-medium"
+                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
                 title="Previous Channel"
               >
-                <SkipBack className="w-4 h-4" /> Prev
+                <SkipBack className="w-5 h-5" />
               </button>
+              {!isYouTube && (
+                <>
+                  <div className="w-px bg-gray-700 my-1"></div>
+                  <button 
+                    onClick={seekBackward}
+                    className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                    title="Rewind 10s"
+                  >
+                    <Rewind className="w-5 h-5" />
+                  </button>
+                  <div className="w-px bg-gray-700 my-1"></div>
+                  <button 
+                    onClick={togglePlayPause}
+                    className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                    title="Play/Pause"
+                  >
+                    {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
+                  </button>
+                  <div className="w-px bg-gray-700 my-1"></div>
+                  <button 
+                    onClick={seekForward}
+                    className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
+                    title="Forward 10s"
+                  >
+                    <FastForward className="w-5 h-5" />
+                  </button>
+                </>
+              )}
               <div className="w-px bg-gray-700 my-1"></div>
               <button 
                 onClick={() => playNextChannel(false)}
-                className="p-2 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white flex items-center gap-1 text-xs font-medium"
+                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
                 title="Next Channel"
               >
-                Next <SkipForward className="w-4 h-4" />
-              </button>
-            </div>
-          
-          {/* Media Transport Controls */}
-          {!isYouTube && currentChannel && (
-            <div className="flex bg-black rounded-lg border border-gray-700 p-0.5 shrink-0">
-              <button 
-                onClick={seekBackward}
-                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
-                title="Rewind 10s"
-              >
-                <Rewind className="w-5 h-5" />
-              </button>
-              <div className="w-px bg-gray-700 my-1"></div>
-              <button 
-                onClick={togglePlayPause}
-                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
-                title="Play/Pause"
-              >
-                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
-              </button>
-              <div className="w-px bg-gray-700 my-1"></div>
-              <button 
-                onClick={seekForward}
-                className="p-1.5 hover:bg-zinc-800 rounded-md transition text-gray-300 hover:text-white"
-                title="Forward 10s"
-              >
-                <FastForward className="w-5 h-5" />
+                <SkipForward className="w-5 h-5" />
               </button>
             </div>
           )}
@@ -1654,35 +1683,47 @@ export default function App() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-zinc-900 border border-gray-700 text-white text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-red-500 w-full sm:w-48"
                   />
-
-                  {channels.length > 0 && (
-                    <div className="flex gap-2 w-full sm:w-auto">
-                      <select
-                        value={selectedCategory === 'Favorites' ? 'All' : selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="bg-zinc-900 border border-gray-700 text-white text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-red-500 flex-grow sm:flex-grow-0"
-                      >
-                        <option value="All">All Categories</option>
-                        {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).map(category => (
-                          <option key={category} value={category}>{category}</option>
-                        ))}
-                      </select>
-
-                      <button
-                        onClick={() => setSelectedCategory(selectedCategory === 'Favorites' ? 'All' : 'Favorites')}
-                        className={`px-3 py-1.5 text-xs font-bold tracking-wider rounded-md border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                          selectedCategory === 'Favorites' 
-                            ? 'bg-yellow-500 border-yellow-500 text-black' 
-                            : 'bg-zinc-900 border-gray-700 text-yellow-500 hover:border-yellow-500'
-                        }`}
-                      >
-                        <Star className="w-3.5 h-3.5" fill={selectedCategory === 'Favorites' ? "currentColor" : "none"} /> 
-                        <span className="hidden sm:inline">Favorites</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
             </div>
+
+            {channels.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-4 mb-2 no-scrollbar w-full">
+                <button
+                  onClick={() => setSelectedCategory('All')}
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors ${
+                    selectedCategory === 'All' 
+                      ? 'bg-red-600 text-white' 
+                      : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
+                  }`}
+                >
+                  All
+                </button>
+                {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).map(category => (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors ${
+                      selectedCategory === category 
+                        ? 'bg-red-600 text-white' 
+                        : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setSelectedCategory(selectedCategory === 'Favorites' ? 'All' : 'Favorites')}
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors flex items-center gap-1.5 ${
+                    selectedCategory === 'Favorites' 
+                      ? 'bg-yellow-500 text-black' 
+                      : 'bg-zinc-800 text-yellow-500 hover:bg-zinc-700'
+                  }`}
+                >
+                  <Star className="w-3.5 h-3.5" fill={selectedCategory === 'Favorites' ? "currentColor" : "none"} /> 
+                  Favorites
+                </button>
+              </div>
+            )}
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3">
               {loading ? (
@@ -1709,9 +1750,16 @@ export default function App() {
                         className="w-full h-full object-cover rounded-lg bg-black border border-gray-600"
                       />
                     </div>
-                    <div className="flex-grow">
-                      <p className="font-bold text-sm group-hover:text-red-500 transition">{channel.name}</p>
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">{channel.category || 'General'}</p>
+                    <div className="flex-grow flex flex-col justify-center overflow-hidden">
+                      <p className="font-bold text-sm group-hover:text-red-500 transition truncate">{channel.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wider shrink-0 bg-zinc-800 px-1.5 py-0.5 rounded">{channel.category || 'General'}</p>
+                        {(() => {
+                          const sched = generateSchedule(channel.id, new Date());
+                          const playing = getCurrentlyPlaying(sched);
+                          return playing ? <p className="text-[10px] text-gray-300 truncate"><span className="text-gray-500">Playing:</span> {playing.title}</p> : null;
+                        })()}
+                      </div>
                     </div>
                     <button 
                       onClick={(e) => toggleFavorite(e, channel)}
