@@ -32,20 +32,21 @@ service cloud.firestore {
 
     // --- Channel ---
     function isValidChannel(data) {
-      let hasReq = data.keys().hasAll(['name', 'url']);
+      let hasReq = data.keys().hasAll(['name', 'url', 'ownerId']);
       let nameOk = data.keys().hasAll(['name']) && data.name is string && data.name.size() > 0 && data.name.size() <= 100;
       let urlOk = data.keys().hasAll(['url']) && data.url is string && data.url.size() > 0 && data.url.size() <= 1000 && data.url.matches('^https?://.*');
       let catOk = data.keys().hasAll(['category']) ? (data.category is string && data.category.size() <= 50) : true;
       let logoOk = data.keys().hasAll(['logo']) ? (data.logo is string && data.logo.size() <= 1000) : true;
       let descOk = data.keys().hasAll(['description']) ? (data.description is string && data.description.size() <= 500) : true;
-      return hasReq && nameOk && urlOk && catOk && logoOk && descOk;
+      let ownerOk = data.keys().hasAll(['ownerId']) && data.ownerId is string && data.ownerId == request.auth.uid;
+      return hasReq && nameOk && urlOk && catOk && logoOk && descOk && ownerOk;
     }
 
     // --- Chat Message ---
     function isValidChatMessage(data) {
       let hasReq = data.keys().hasAll(['text', 'userId', 'displayName', 'timestamp']);
-      let textOk = data.keys().hasAll(['text']) && data.text is string && data.text.size() > 0 && data.text.size() <= 600;
-      let userIdOk = data.keys().hasAll(['userId']) && data.userId is string && data.userId == request.auth.uid;
+      let textOk = data.keys().hasAll(['text']) && data.text is string && data.text.size() > 0 && data.text.size() <= 1000;
+      let userIdOk = data.keys().hasAll(['userId']) && data.userId is string && (data.userId == request.auth.uid || data.userId == 'ai-assistant');
       let displayOk = data.keys().hasAll(['displayName']) ? (data.displayName is string && data.displayName.size() <= 100) : true;
       let timeOk = data.keys().hasAll(['timestamp']) && data.timestamp == request.time;
       return hasReq && textOk && userIdOk && displayOk && timeOk && data.keys().size() <= 4;
@@ -65,16 +66,17 @@ service cloud.firestore {
       allow create: if isSignedIn() 
                     && isValidId(channelId)
                     && isValidChannel(incoming())
-                    && incoming().keys().size() <= 5; // Only allowed keys
+                    && incoming().keys().size() <= 6; // Only allowed keys
                     
       allow update: if isSignedIn()
-                    && isValidChannel(incoming());
+                    && isValidChannel(incoming())
+                    && existing().ownerId == request.auth.uid;
                     
-      allow delete: if false; // Only admins should delete channels ideally, disabled for now
+      allow delete: if isSignedIn() && existing().ownerId == request.auth.uid;
       
       match /typing/{userId} {
         allow read: if true;
-        allow write: if isSignedIn() && request.auth.uid == userId;
+        allow write: if isSignedIn() && (request.auth.uid == userId || userId == 'ai-assistant');
       }
       
       match /messages/{messageId} {

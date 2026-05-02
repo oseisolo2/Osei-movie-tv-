@@ -3,10 +3,10 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
-import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling } from 'lucide-react';
-import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './lib/epg';
+import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling } from 'lucide-react';
+import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './components/epg';
 import AuthModal from './components/AuthModal';
-import TermsModal from './components/TermsModal';
+import TermsModal from './TermsModal';
 import PrivacyModal from './components/PrivacyModal';
 import LiveChat from './components/LiveChat';
 import ShortcutsModal from './components/ShortcutsModal';
@@ -19,6 +19,8 @@ interface Channel {
   category: string;
   url: string;
   description?: string;
+  ownerId?: string;
+  trailerUrl?: string;
 }
 
 interface UserProfile {
@@ -54,16 +56,22 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showEPGModal, setShowEPGModal] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
+  const [recentlyWatched, setRecentlyWatched] = useState<string[]>([]);
+  const [showTrailerModal, setShowTrailerModal] = useState<string | null>(null);
   
   // Quality options state
   const [qualities, setQualities] = useState<any[]>([]);
   const [selectedQuality, setSelectedQuality] = useState<number>(-1);
+  const [subtitleTracks, setSubtitleTracks] = useState<any[]>([]);
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number>(-1);
   const [volume, setVolume] = useState<number>(1);
   const [brightness, setBrightness] = useState<number>(100);
   const [objectFit, setObjectFit] = useState<"contain" | "cover" | "fill">("contain");
@@ -74,6 +82,17 @@ export default function App() {
   const [castAvailable, setCastAvailable] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const getViewCount = (id: string) => {
+    const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return (hash % 850) + 120;
+  };
+
+  const PLACEHOLDER_LOGO = 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=200&h=200&fit=crop&q=80';
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.src = PLACEHOLDER_LOGO;
+  };
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const currentChannelRef = useRef<Channel | null>(null);
@@ -233,7 +252,8 @@ export default function App() {
       
       const channelToSave: any = { 
         name: newChannel.name, 
-        url: newChannel.url 
+        url: newChannel.url,
+        ownerId: user?.uid
       };
       if (newChannel.logo.trim()) channelToSave.logo = newChannel.logo.trim();
       if (newChannel.category.trim()) channelToSave.category = newChannel.category.trim();
@@ -250,6 +270,27 @@ export default function App() {
       setAdding(false);
     }
   };
+
+  useEffect(() => {
+    const savedRecentlyWatched = localStorage.getItem('recentlyWatched');
+    if (savedRecentlyWatched) {
+      try {
+        setRecentlyWatched(JSON.parse(savedRecentlyWatched));
+      } catch (e) {
+        console.error("Error parsing recently watched:", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentChannel) {
+      setRecentlyWatched(prev => {
+        const updated = [currentChannel.id, ...prev.filter(id => id !== currentChannel.id)].slice(0, 10);
+        localStorage.setItem('recentlyWatched', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [currentChannel?.id]);
 
   useEffect(() => {
     let unsubscribeProfile: () => void = () => {};
@@ -303,9 +344,9 @@ export default function App() {
       {
         id: 'local_news_1',
         name: 'Sky News',
-        url: 'https://skynews-eu.cbsivideo.com/clippr/free/master.m3u8',
+        url: 'https://skynewsau-live.akamaized.net/hls/live/2002689/skynewsau-extra1/master.m3u8',
         category: 'News',
-        description: 'Sky News UK Live stream',
+        description: 'Sky News Live stream',
         logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/f/fa/Sky_News_2020.svg/512px-Sky_News_2020.svg.png'
       },
       {
@@ -333,14 +374,6 @@ export default function App() {
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/France_24_logo_%282024%29.svg/512px-France_24_logo_%282024%29.svg.png'
       },
       {
-        id: 'news_bloomberg',
-        name: 'Bloomberg TV+',
-        url: 'https://live.bloomberg.tv/bloomberg/playlist.m3u8',
-        category: 'News',
-        description: 'Bloomberg Global Financial News',
-        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloomberg_Television_logo.svg/512px-Bloomberg_Television_logo.svg.png'
-      },
-      {
         id: 'news_abc',
         name: 'ABC News Live',
         url: 'https://content.uplynk.com/channel/3324f2467c414329b3b0cc5cd987b6be.m3u8',
@@ -359,7 +392,7 @@ export default function App() {
       {
         id: 'news_cna',
         name: 'CNA',
-        url: 'https://d2e1asnsl7br7b.cloudfront.net/7782e205e72f43aeb4a480973e06f12a/index.m3u8',
+        url: 'https://amg01082-cna-amg01082c1-rlaxx-us-11304.playouts.now.amagi.tv/playlist.m3u8',
         category: 'News',
         description: 'Channel NewsAsia Live',
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/CNA_logo_%282019%29.svg/512px-CNA_logo_%282019%29.svg.png'
@@ -426,7 +459,114 @@ export default function App() {
         url: 'https://rakuten-viki-1-eu.rakuten.wurl.tv/playlist.m3u8',
         category: 'Entertainment',
         description: 'Rakuten Viki Live',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Rakuten_logo.svg/512px-Rakuten_logo.svg.png',
+        trailerUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+      },
+      {
+        id: 'movie_action',
+        name: 'Rakuten Action',
+        url: 'https://rakuten-actionmovies-1-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Movies',
+        description: 'Action-packed movies 24/7',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Rakuten_logo.svg/512px-Rakuten_logo.svg.png',
+        trailerUrl: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'
+      },
+      {
+        id: 'movie_comedy',
+        name: 'Rakuten Comedy',
+        url: 'https://rakuten-comedy-1-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Movies',
+        description: 'Non-stop comedy movies',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Rakuten_logo.svg/512px-Rakuten_logo.svg.png',
+        trailerUrl: 'https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8'
+      },
+      {
+        id: 'movie_scifi',
+        name: 'Dust Sci-Fi',
+        url: 'https://dust-dust-1-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Movies',
+        description: 'The best science fiction movies',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Dust_Logo.png/512px-Dust_Logo.png'
+      },
+      {
+        id: 'news_weathernation',
+        name: 'WeatherNation',
+        url: 'https://weathernation.amagi.tv/playlist.m3u8',
+        category: 'News',
+        description: '24/7 Weather News',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/WeatherNation_TV_logo.svg/512px-WeatherNation_TV_logo.svg.png'
+      },
+      {
+        id: 'news_rt_uk',
+        name: 'RT UK',
+        url: 'https://rt-uk.rt.com/hls/rtuk/index.m3u8',
+        category: 'News',
+        description: 'RT UK Live News',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/RT_logo.svg/512px-RT_logo.svg.png'
+      },
+      {
+        id: 'ent_failarmy',
+        name: 'FailArmy',
+        url: 'https://failarmy-us.amagi.tv/playlist.m3u8',
+        category: 'Entertainment',
+        description: 'Fails and funny videos 24/7',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/FailArmy_Logo.png/512px-FailArmy_Logo.png'
+      },
+      {
+        id: 'ent_pets_tv',
+        name: 'Pets TV',
+        url: 'https://pets-tv-us.amagi.tv/playlist.m3u8',
+        category: 'Nature',
+        description: 'Cute animals and pets 24/7',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Pets_TV_Logo.png/512px-Pets_TV_Logo.png'
+      },
+      {
+        id: 'sports_redbull_moto',
+        name: 'Red Bull Motorsports',
+        url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+        category: 'Sports',
+        description: 'Action sports and racing',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Red_Bull_TV_logo.svg/512px-Red_Bull_TV_logo.svg.png'
+      },
+      {
+        id: 'kids_toons',
+        name: 'Toon Goggles',
+        url: 'https://toongoggles-us.amagi.tv/playlist.m3u8',
+        category: 'Kids',
+        description: 'Cartoons and kids shows',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Toon_Goggles_logo.png/512px-Toon_Goggles_logo.png'
+      },
+      {
+        id: 'news_bloomberg',
+        name: 'Bloomberg TV',
+        url: 'https://live-bloomberg-us.amagi.tv/playlist.m3u8',
+        category: 'News',
+        description: 'Global business and financial news 24/7. Trusted coverage of market-moving events.',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Bloomberg_logo.svg/512px-Bloomberg_logo.svg.png'
+      },
+      {
+        id: 'news_pbs_newshour',
+        name: 'PBS NewsHour',
+        url: 'https://pbs-newshour-us.amagi.tv/playlist.m3u8',
+        category: 'News',
+        description: 'Deep reporting on the major stories. Reliable news from the Public Broadcasting Service.',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/PBS_Logo.svg/512px-PBS_Logo.svg.png'
+      },
+      {
+        id: 'ent_rakuten_drama',
+        name: 'Rakuten Drama',
+        url: 'https://rakuten-drama-1-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Entertainment',
+        description: 'Compelling drama series and movies 24/7.',
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Rakuten_logo.svg/512px-Rakuten_logo.svg.png'
+      },
+      {
+        id: 'movie_classic_film',
+        name: 'Classic Cinema',
+        url: 'https://filmrise-classicmovies-us.amagi.tv/playlist.m3u8',
+        category: 'Movies',
+        description: 'Greatest hits from the golden age of cinema.',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/FilmRise_logo.png/512px-FilmRise_logo.png'
       }
     ];
 
@@ -528,11 +668,14 @@ export default function App() {
     let matchesCategory = false;
     if (selectedCategory === 'Favorites') {
       matchesCategory = !!(userProfile && userProfile.favoriteChannels.includes(channel.id));
+    } else if (selectedCategory === 'Trailers') {
+      matchesCategory = !!channel.trailerUrl;
     } else {
       matchesCategory = selectedCategory === 'All' || (channel.category || 'General') === selectedCategory;
     }
     const matchesSearch = channel.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          (channel.category || 'General').toLowerCase().includes(searchQuery.toLowerCase());
+                          (channel.category || 'General').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (channel.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
@@ -793,6 +936,8 @@ export default function App() {
     currentChannelRef.current = channel;
     setQualities([]);
     setSelectedQuality(-1);
+    setSubtitleTracks([]);
+    setSelectedSubtitle(-1);
     setIsBuffering(true);
     setStreamError(null);
     setToastMessage(null);
@@ -875,6 +1020,16 @@ export default function App() {
         
         video.play().catch(e => log(`Play Error: ${e.message}`));
       });
+
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_event, data) => {
+        setSubtitleTracks(data.subtitleTracks || []);
+        log(`Subtitle tracks updated: ${data.subtitleTracks?.length || 0} tracks found`);
+      });
+
+      hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_event, data) => {
+        setSelectedSubtitle(data.id);
+        log(`Subtitle track switched to: ${data.id}`);
+      });
       
       let toastTimeout: NodeJS.Timeout;
 
@@ -951,6 +1106,14 @@ export default function App() {
     }
   };
 
+  const handleSubtitleChange = (trackId: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = trackId;
+      setSelectedSubtitle(trackId);
+      log(`Subtitle changed to ${trackId === -1 ? 'Off' : trackId}`);
+    }
+  };
+
   const handleShare = async () => {
     try {
       const shareTitle = currentChannel ? `Watch ${currentChannel.name} on Osei TV` : 'Osei TV';
@@ -978,9 +1141,21 @@ export default function App() {
         <header className="p-4 border-b border-gray-800 flex justify-between items-center bg-black sticky top-0 z-50">
           <div className="flex items-center gap-2">
             <Tv className="text-red-600 w-6 h-6" />
-            <h1 className="text-red-600 font-bold text-xl uppercase tracking-tighter">Osei tv</h1>
+            <h1 className="text-red-600 font-bold text-xl uppercase tracking-tighter">Osei TV</h1>
           </div>
           <div className="flex gap-2 items-center overflow-x-auto no-scrollbar pb-1 -mb-1">
+            <button
+              onClick={() => setShowDownloadModal(true)}
+              className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold uppercase rounded-full transition-all border border-gray-700 shrink-0 flex items-center gap-1.5"
+            >
+              <Cast className="w-3 h-3" /> Get App
+            </button>
+            <button
+              onClick={() => setIsSubscribeModalOpen(true)}
+              className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase rounded-full transition-all shadow-lg hover:shadow-red-900/40 shrink-0"
+            >
+              Subscribe
+            </button>
             {castAvailable && (
               <button
                 onClick={() => {
@@ -1070,6 +1245,10 @@ export default function App() {
           <ShortcutsModal onClose={() => setShowShortcutsModal(false)} />
         )}
 
+        {showDownloadModal && (
+          <DownloadAppModal onClose={() => setShowDownloadModal(false)} />
+        )}
+
         {showEPGModal && (
           <EPGModal 
             channels={channels}
@@ -1093,6 +1272,22 @@ export default function App() {
         {showPrivacy && (
           <PrivacyModal onClose={() => setShowPrivacy(false)} />
         )}
+
+        {isSubscribeModalOpen && (
+          <SubscribeModal onClose={() => setIsSubscribeModalOpen(false)} userEmail={user?.email || undefined} />
+        )}
+        
+        {showTrailerModal && (() => {
+          const channel = channels.find(c => c.id === showTrailerModal);
+          if (!channel || !channel.trailerUrl) return null;
+          return (
+            <TrailerModal 
+              url={channel.trailerUrl} 
+              name={channel.name} 
+              onClose={() => setShowTrailerModal(null)} 
+            />
+          );
+        })()}
 
         {/* Profile Modal */}
         {showProfileModal && userProfile && (
@@ -1285,13 +1480,57 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Logo URL</label>
-                  <input 
-                    type="url" 
-                    value={newChannel.logo} 
-                    onChange={e => setNewChannel({...newChannel, logo: e.target.value})}
-                    className="w-full bg-black border border-gray-700 rounded p-2 text-sm text-white focus:border-red-500 outline-none" 
-                    placeholder="https://example.com/logo.png"
-                  />
+                  <div className="flex gap-2">
+                    <input 
+                      type="url" 
+                      value={newChannel.logo} 
+                      onChange={e => setNewChannel({...newChannel, logo: e.target.value})}
+                      className="flex-grow bg-black border border-gray-700 rounded p-2 text-sm text-white focus:border-red-500 outline-none" 
+                      placeholder="https://example.com/logo.png"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = async (e: any) => {
+                          const file = e.target.files[0];
+                          if (!file) return;
+                          try {
+                            const sigRes = await fetch('/api/cloudinary-signature', { method: 'POST' });
+                            const sigData = await sigRes.json();
+                            if (sigData.error) throw new Error(sigData.error);
+                            
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            formData.append('api_key', sigData.apiKey);
+                            formData.append('timestamp', sigData.timestamp);
+                            formData.append('signature', sigData.signature);
+                            
+                            const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${sigData.cloudName}/image/upload`, {
+                              method: 'POST',
+                              body: formData
+                            });
+                            
+                            const uploadData = await uploadRes.json();
+                            if (uploadData.secure_url) {
+                              setNewChannel({...newChannel, logo: uploadData.secure_url});
+                              alert('Image uploaded successfully!');
+                            }
+                          } catch (err: any) {
+                            alert('Upload failed: ' + err.message);
+                            console.error(err);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-sm px-4 rounded border border-gray-700 transition"
+                      title="Upload to Cloudinary"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
               <div>
@@ -1429,51 +1668,74 @@ export default function App() {
 
         {/* Channel Info */}
         <div className="p-4 bg-zinc-900 border-b border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div className="flex-grow">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              {currentChannel ? currentChannel.name : 'Select a Channel'}
-            </h2>
-            <div className="flex flex-col gap-1 mt-1">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <p className="text-green-500 text-xs font-bold uppercase tracking-widest">
-                  Live Now
-                </p>
+          <div className="flex-grow flex items-start sm:items-center gap-4">
+            {currentChannel && (
+              <div className="w-12 h-12 shrink-0 bg-black rounded-xl border border-gray-700 overflow-hidden shadow-lg shadow-black/50">
+                <img 
+                  src={currentChannel.logo || PLACEHOLDER_LOGO} 
+                  alt={currentChannel.name} 
+                  onError={handleImageError}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <div className="flex-grow">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-white">
+                {currentChannel ? currentChannel.name : 'Select a Channel'}
+              </h2>
+              <div className="flex flex-col gap-1 mt-1">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <p className="text-green-500 text-xs font-bold uppercase tracking-widest">
+                    Live Now
+                  </p>
+                  {currentChannel && (() => {
+                    const schedule = generateSchedule(currentChannel.id, new Date());
+                    const playingNow = getCurrentlyPlaying(schedule);
+                    if (playingNow) {
+                      return (
+                        <span className="bg-zinc-800 text-gray-300 text-xs px-2 py-0.5 rounded border border-gray-700 truncate max-w-xs md:max-w-md">
+                          <span className="text-white font-semibold">{playingNow.title}</span> • {playingNow.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {playingNow.endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
                 {currentChannel && (() => {
                   const schedule = generateSchedule(currentChannel.id, new Date());
-                  const playingNow = getCurrentlyPlaying(schedule);
-                  if (playingNow) {
+                  const nextUp = getUpNext(schedule);
+                  if (nextUp) {
                     return (
-                      <span className="bg-zinc-800 text-gray-300 text-xs px-2 py-0.5 rounded border border-gray-700 truncate max-w-xs md:max-w-md">
-                        <span className="text-white font-semibold">{playingNow.title}</span> • {playingNow.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {playingNow.endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <div className="text-xs text-gray-500 pl-4 mt-0.5 max-w-xl truncate">
+                        Up Next: <span className="text-gray-400">{nextUp.title}</span> at {nextUp.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     );
                   }
                   return null;
                 })()}
               </div>
-              {currentChannel && (() => {
-                const schedule = generateSchedule(currentChannel.id, new Date());
-                const nextUp = getUpNext(schedule);
-                if (nextUp) {
-                  return (
-                    <div className="text-xs text-gray-500 pl-4 mt-0.5 max-w-xl truncate">
-                      Up Next: <span className="text-gray-400">{nextUp.title}</span> at {nextUp.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+              {currentChannel?.description && (
+                <p className="text-sm text-gray-400 mt-3 max-w-xl line-clamp-2">{currentChannel.description}</p>
+              )}
             </div>
-            {currentChannel?.description && (
-              <p className="text-sm text-gray-400 mt-3 max-w-xl line-clamp-2">{currentChannel.description}</p>
-            )}
           </div>
           
           <div className="flex items-center gap-3 self-start sm:self-auto shrink-0 mt-3 sm:mt-0 flex-wrap">
+            {/* Watch Trailer Button */}
+            {currentChannel?.trailerUrl && (
+              <button 
+                onClick={() => setShowTrailerModal(currentChannel.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-red-600/10 border-red-500/50 text-red-500 hover:bg-red-600/20 hover:text-red-400 hover:border-red-500 text-xs font-bold uppercase transition shadow-lg shadow-red-900/10"
+                title="Watch Trailer / Preview"
+              >
+                <Play className="w-4 h-4 fill-current" /> Trailer
+              </button>
+            )}
+
             {/* Take Snapshot Button */}
             {!isYouTube && currentChannel && (
               <button 
@@ -1661,6 +1923,25 @@ export default function App() {
               </select>
             </div>
           )}
+
+          {/* Subtitle Selector */}
+          {subtitleTracks.length > 0 && (
+            <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700">
+              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Captions</span>
+              <select 
+                value={selectedSubtitle}
+                onChange={(e) => handleSubtitleChange(Number(e.target.value))}
+                className="bg-transparent text-sm font-semibold text-white outline-none cursor-pointer max-w-[100px]"
+              >
+                <option value={-1} className="bg-zinc-800">Off</option>
+                {subtitleTracks.map((track, i) => (
+                  <option key={i} value={track.id} className="bg-zinc-800">
+                    {track.name || track.lang || `Track ${i+1}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           </div>
         </div>
 
@@ -1676,35 +1957,60 @@ export default function App() {
               </h3>
               
                 <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
-                  <input 
-                    type="text" 
-                    placeholder="Search channels..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-zinc-900 border border-gray-700 text-white text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-red-500 w-full sm:w-48"
-                  />
+                  <div className="relative w-full sm:w-64 group">
+                    <input 
+                      type="text" 
+                      placeholder="Search name, category, or description..." 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="bg-zinc-900 border border-gray-700 text-white text-sm rounded-md pl-9 pr-8 py-2 focus:outline-none focus:border-red-500 w-full transition-all"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-red-500 transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    {searchQuery && (
+                      <button 
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
             </div>
 
             {channels.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-4 mb-2 no-scrollbar w-full">
+              <div className="flex flex-wrap gap-2 pb-4 mb-2 w-full">
                 <button
                   onClick={() => setSelectedCategory('All')}
-                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors ${
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all ${
                     selectedCategory === 'All' 
-                      ? 'bg-red-600 text-white' 
+                      ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
                       : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
                   }`}
                 >
                   All
                 </button>
-                {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).map(category => (
+                <button
+                  onClick={() => setSelectedCategory('Trailers')}
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all flex items-center gap-1.5 ${
+                    selectedCategory === 'Trailers' 
+                      ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
+                      : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
+                  }`}
+                >
+                  <PlayCircle className="w-3 h-3" /> Trailers
+                </button>
+                {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).sort().map(category => (
                   <button
                     key={category}
                     onClick={() => setSelectedCategory(category)}
-                    className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors ${
+                    className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all ${
                       selectedCategory === category 
-                        ? 'bg-red-600 text-white' 
+                        ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
                         : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
                     }`}
                   >
@@ -1713,15 +2019,63 @@ export default function App() {
                 ))}
                 <button
                   onClick={() => setSelectedCategory(selectedCategory === 'Favorites' ? 'All' : 'Favorites')}
-                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-colors flex items-center gap-1.5 ${
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all flex items-center gap-1.5 ${
                     selectedCategory === 'Favorites' 
-                      ? 'bg-yellow-500 text-black' 
-                      : 'bg-zinc-800 text-yellow-500 hover:bg-zinc-700'
+                      ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-900/40' 
+                      : 'bg-zinc-800 text-yellow-500 hover:bg-zinc-700 hover:text-white'
                   }`}
                 >
                   <Star className="w-3.5 h-3.5" fill={selectedCategory === 'Favorites' ? "currentColor" : "none"} /> 
                   Favorites
                 </button>
+                {(selectedCategory !== 'All' || searchQuery) && (
+                  <button
+                    onClick={() => {
+                      setSelectedCategory('All');
+                      setSearchQuery('');
+                    }}
+                    className="shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full bg-zinc-900 text-white border border-gray-700 hover:border-gray-500 transition-all flex items-center gap-1.5"
+                  >
+                    <X className="w-3 h-3" />
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            )}
+
+            {recentlyWatched.length > 0 && selectedCategory === 'All' && !searchQuery && (
+              <div className="mb-6 animate-in fade-in slide-in-from-left-2 duration-700">
+                <h4 className="text-gray-500 uppercase text-[10px] font-bold mb-3 flex items-center gap-2">
+                  <History className="w-3 h-3" />
+                  Recently Watched
+                </h4>
+                <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
+                  {recentlyWatched.map(id => {
+                    const channel = channels.find(c => c.id === id);
+                    if (!channel) return null;
+                    return (
+                      <div 
+                        key={`recent-${channel.id}`}
+                        onClick={() => playStream(channel)}
+                        className="shrink-0 w-32 group cursor-pointer"
+                      >
+                        <div className="aspect-video bg-zinc-800 rounded-lg overflow-hidden border border-gray-700 group-hover:border-red-600 transition-all mb-2 relative">
+                          <img 
+                            src={channel.logo || PLACEHOLDER_LOGO} 
+                            alt={channel.name} 
+                            onError={handleImageError}
+                            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" 
+                          />
+                          <div className="absolute inset-x-0 bottom-0 h-1 bg-zinc-600">
+                            <div className="h-full bg-red-600 w-1/3" />
+                          </div>
+                        </div>
+                        <p className="text-[10px] font-bold truncate text-gray-400 group-hover:text-white transition-colors">{channel.name}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="h-px bg-zinc-800/50 my-6" />
               </div>
             )}
             
@@ -1745,13 +2099,39 @@ export default function App() {
                   >
                     <div className="relative w-12 h-12 mr-4 flex-shrink-0">
                       <img 
-                        src={channel.logo || 'https://via.placeholder.com/100'} 
+                        src={channel.logo || PLACEHOLDER_LOGO} 
                         alt={channel.name}
+                        onError={handleImageError}
                         className="w-full h-full object-cover rounded-lg bg-black border border-gray-600"
                       />
+                      <div className="absolute -top-1 -right-1 bg-red-600 w-3 h-3 rounded-full border border-zinc-800 animate-pulse" title="Live Now" />
+                      {getViewCount(channel.id) > 700 && (
+                        <div className="absolute -bottom-1 -right-1 bg-orange-500 text-[8px] font-bold px-1 rounded-sm border border-zinc-900 leading-tight">HOT</div>
+                      )}
+                      {(channel.id.includes('new') || channel.id.startsWith('ent_fail') || channel.id.startsWith('kids_toon')) && (
+                        <div className="absolute -bottom-1 -left-1 bg-blue-500 text-[8px] font-bold px-1 rounded-sm border border-zinc-900 leading-tight text-white">NEW</div>
+                      )}
+                      {channel.trailerUrl && (
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowTrailerModal(channel.id);
+                          }}
+                          className="absolute bottom-1 left-1 bg-black/60 hover:bg-black p-1 rounded-full border border-white/20 transition-all group/trailer"
+                          title="Watch Trailer"
+                        >
+                          <Play className="w-2.5 h-2.5 text-red-500 fill-current" />
+                        </div>
+                      )}
                     </div>
                     <div className="flex-grow flex flex-col justify-center overflow-hidden">
-                      <p className="font-bold text-sm group-hover:text-red-500 transition truncate">{channel.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-sm group-hover:text-red-500 transition truncate">{channel.name}</p>
+                        <span className="text-[9px] text-gray-500 font-medium flex items-center gap-0.5 whitespace-nowrap">
+                          <div className="w-1 h-1 rounded-full bg-green-500" />
+                          {getViewCount(channel.id).toLocaleString()} watching
+                        </span>
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <p className="text-[10px] text-gray-400 uppercase tracking-wider shrink-0 bg-zinc-800 px-1.5 py-0.5 rounded">{channel.category || 'General'}</p>
                         {(() => {
@@ -1763,14 +2143,35 @@ export default function App() {
                     </div>
                     <button 
                       onClick={(e) => toggleFavorite(e, channel)}
-                      className="mr-3 p-2 hover:bg-zinc-600 rounded-full transition"
+                      className="mr-2 p-2 hover:bg-zinc-600 rounded-full transition"
                       title={(userProfile?.favoriteChannels?.includes(channel.id)) ? "Remove from favorites" : "Add to favorites"}
                     >
                       <Star 
-                        className={`w-5 h-5 ${(userProfile?.favoriteChannels?.includes(channel.id)) ? 'text-yellow-500' : 'text-gray-500 hover:text-yellow-500'}`} 
+                        className={`w-4 h-4 ${(userProfile?.favoriteChannels?.includes(channel.id)) ? 'text-yellow-500' : 'text-gray-500 hover:text-yellow-500'}`} 
                         fill={(userProfile?.favoriteChannels?.includes(channel.id)) ? "currentColor" : "none"}
                       />
                     </button>
+                    {channel.ownerId === user?.uid && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Are you sure you want to delete ${channel.name}?`)) {
+                            try {
+                              const { deleteDoc, doc } = await import('firebase/firestore');
+                              await deleteDoc(doc(db, 'channels', channel.id));
+                              log(`Deleted channel: ${channel.name}`);
+                            } catch (err) {
+                              console.error("Delete error:", err);
+                              alert("Failed to delete channel.");
+                            }
+                          }
+                        }}
+                        className="mr-3 p-2 hover:bg-red-900/50 hover:text-red-500 text-gray-500 rounded-full transition"
+                        title="Delete channel"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     <PlayCircle className="text-gray-500 group-hover:text-red-600 transition w-5 h-5 flex-shrink-0" />
                   </div>
                 ))
@@ -1815,3 +2216,381 @@ export default function App() {
     </div>
   );
 }
+
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
+
+interface SubscribeModalProps {
+  onClose: () => void;
+  userEmail?: string;
+}
+
+const CheckoutForm = ({ planName, onBack, onSuccess }: { planName: string, onBack: () => void, onSuccess: () => void }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [errorMessage, setErrorMessage] = React.useState('');
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: window.location.href, // Or wherever you want to return
+      },
+      redirect: 'if_required' 
+    });
+
+    if (error) {
+      setErrorMessage(error.message ?? 'An unknown error occurred');
+      setIsLoading(false);
+    } else {
+      // Success!
+      onSuccess();
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <PaymentElement />
+      {errorMessage && <div className="text-red-500 text-sm">{errorMessage}</div>}
+      <div className="flex gap-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex-1 py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-bold uppercase"
+        >
+          Back
+        </button>
+        <button
+          disabled={!stripe || !elements || isLoading}
+          className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold uppercase flex items-center justify-center gap-2"
+        >
+          {isLoading ? 'Processing...' : `Pay for ${planName}`}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+const SubscribeModal: React.FC<SubscribeModalProps> = ({ onClose, userEmail }) => {
+  const [selectedPlan, setSelectedPlan] = React.useState<string | null>(null);
+  const [clientSecret, setClientSecret] = React.useState('');
+  const [isSuccess, setIsSuccess] = React.useState(false);
+
+  const plans = [
+    {
+      name: 'Basic',
+      price: '$4.99',
+      features: ['HD Quality', '100+ Channels', 'Basic Support'],
+      recommended: false
+    },
+    {
+      name: 'Premium',
+      price: '$9.99',
+      features: ['4K Ultra HD', '500+ Channels', 'Priority Support', 'Offline Content'],
+      recommended: true
+    },
+    {
+      name: 'Ultra',
+      price: '$14.99',
+      features: ['The Best Quality', 'All Channels', 'No Ads', 'Family Access (4 Screens)'],
+      recommended: false
+    }
+  ];
+
+  const handleSelectPlan = async (planName: string) => {
+    setSelectedPlan(planName);
+    
+    // Create payment intent
+    try {
+      const res = await fetch('/api/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: planName, email: userEmail })
+      });
+      const data = await res.json();
+      if (data.clientSecret) {
+        setClientSecret(data.clientSecret);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-[110] flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-gray-700 rounded-2xl w-full max-w-4xl shadow-2xl relative overflow-hidden">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 z-10 transition-colors">
+          <X className="w-6 h-6" />
+        </button>
+        
+        <div className="p-8">
+          {isSuccess ? (
+            <div className="text-center py-16 animate-in zoom-in fade-in duration-300">
+              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-extrabold text-white mb-4">Subscription Confirmed!</h2>
+              <p className="text-gray-400 mb-8 text-lg">
+                You have successfully subscribed to the <strong className="text-white">{selectedPlan}</strong> plan.
+                Your account is now being upgraded.
+              </p>
+              <button 
+                onClick={onClose}
+                className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold uppercase tracking-wider transition-all"
+              >
+                Start Watching
+              </button>
+            </div>
+          ) : clientSecret && selectedPlan ? (
+            <div className="max-w-md mx-auto py-8">
+               <h2 className="text-2xl font-bold text-white mb-6 text-center">Complete Payment</h2>
+               <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night' } }}>
+                 <CheckoutForm 
+                    planName={selectedPlan} 
+                    onBack={() => { setClientSecret(''); setSelectedPlan(null); }} 
+                    onSuccess={() => setIsSuccess(true)} 
+                  />
+               </Elements>
+            </div>
+          ) : (
+            <>
+              <div className="text-center mb-10">
+                <h2 className="text-3xl font-extrabold text-white mb-2">Select Your Plan</h2>
+                <p className="text-gray-400">Upgrade to Osei TV Premium for the best streaming experience</p>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-6">
+                {plans.map((plan) => (
+                  <div 
+                    key={plan.name} 
+                    className={`relative p-6 rounded-xl border flex flex-col ${
+                      plan.recommended 
+                        ? 'bg-zinc-800 border-red-600 shadow-xl shadow-red-900/10 scale-105' 
+                        : 'bg-black/50 border-gray-800 hover:border-gray-700'
+                    } transition-all duration-300`}
+                  >
+                    {plan.recommended && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-red-600 text-white text-[10px] font-bold uppercase py-1 px-3 rounded-full">
+                        Recommended
+                      </span>
+                    )}
+                    
+                    <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
+                    <div className="flex items-baseline gap-1 mb-6">
+                      <span className="text-3xl font-bold">{plan.price}</span>
+                      <span className="text-sm text-gray-500">/mo</span>
+                    </div>
+                    
+                    <ul className="space-y-3 mb-8 flex-grow">
+                      {plan.features.map((feature) => (
+                        <li key={feature} className="flex items-center gap-2 text-sm text-gray-300">
+                          <div className="w-1.5 h-1.5 rounded-full bg-red-600" />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+                    
+                    <button 
+                      onClick={() => handleSelectPlan(plan.name)}
+                      className={`w-full py-3 rounded-lg font-bold text-sm uppercase tracking-wider transition-all flex justify-center items-center gap-2 ${
+                      plan.recommended 
+                        ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg' 
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-gray-200'
+                    }`}>
+                      {selectedPlan === plan.name ? 'Preparing...' : 'Select Plan'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              <p className="text-center mt-10 text-[10px] text-gray-500 max-w-lg mx-auto">
+                By subscribing, you agree to our Terms of Service and Privacy Policy. Subscriptions renew automatically until canceled. Taxes may apply.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface DownloadAppModalProps {
+  onClose: () => void;
+}
+
+const DownloadAppModal: React.FC<DownloadAppModalProps> = ({ onClose }) => {
+  return (
+    <div className="fixed inset-0 bg-black/90 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-zinc-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col relative">
+        <button 
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-500 hover:text-white transition p-2 rounded-full hover:bg-white/5"
+        >
+          <X className="w-6 h-6" />
+        </button>
+
+        <div className="p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-red-600 p-2.5 rounded-xl shadow-lg shadow-red-900/20">
+              <Tv className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Get Osei TV</h2>
+              <p className="text-gray-400 text-sm font-medium">Enjoy the best streaming experience on all your devices</p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Phone Support */}
+            <div className="bg-black border border-gray-800 rounded-2xl p-6 hover:border-red-600/50 transition-colors group">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-blue-500/10 rounded-lg group-hover:bg-blue-500/20 transition-colors">
+                  <Cast className="w-5 h-5 text-blue-500" />
+                </div>
+                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Android (Phone)</h3>
+              </div>
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                Install our native Android app for smooth streaming and offline favorites.
+              </p>
+              <div className="space-y-3">
+                <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
+                  <p className="font-bold text-gray-300 mb-1">How to install:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-gray-400">
+                    <li>Export the project as a ZIP (Settings &gt; Export).</li>
+                    <li>Open the <code className="text-blue-400">android</code> folder in Android Studio.</li>
+                    <li>Build and Run on your connected phone.</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+
+            {/* Laptop Support */}
+            <div className="bg-black border border-gray-800 rounded-2xl p-6 hover:border-red-600/50 transition-colors group">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-purple-500/10 rounded-lg group-hover:bg-purple-500/20 transition-colors">
+                  <PlayCircle className="w-5 h-5 text-purple-500" />
+                </div>
+                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Laptop / Desktop</h3>
+              </div>
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                Use Osei TV as a standalone desktop app or directly in your favorite browser.
+              </p>
+              <div className="space-y-3">
+                <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
+                  <p className="font-bold text-gray-300 mb-1">Option 1: Browser</p>
+                  <p className="text-gray-400">Just visit our URL in Chrome or Safari. No installation required!</p>
+                </div>
+                <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
+                  <p className="font-bold text-gray-300 mb-1">Option 2: Install as PWA</p>
+                  <p className="text-gray-400">Click the "Install" icon in your browser's address bar to add Osei TV to your dock.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 p-4 bg-red-600/10 border border-red-500/20 rounded-xl">
+            <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest text-center">
+              Multi-Device synchronization is automatically handled via your Osei TV account
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+interface TrailerModalProps {
+  url: string;
+  name: string;
+  onClose: () => void;
+}
+
+const TrailerModal: React.FC<TrailerModalProps> = ({ url, name, onClose }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+
+    if (url.includes('.m3u8')) {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+        });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hlsRef.current = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(e => console.error("Play error:", e));
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', () => {
+          video.play().catch(e => console.error("Play error:", e));
+        });
+      }
+    } else {
+      video.src = url;
+      video.play().catch(e => console.error("Play error:", e));
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+      }
+    };
+  }, [url]);
+
+  return (
+    <div className="fixed inset-0 bg-black/95 z-[120] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-zinc-900 border border-gray-800 rounded-2xl w-full max-w-4xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
+        <div className="flex justify-between items-center p-4 border-b border-gray-800 bg-black/50">
+          <h2 className="font-bold text-lg text-white flex items-center gap-2">
+            <PlayCircle className="text-red-500 w-5 h-5" /> Preview: {name}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white p-2 rounded-full hover:bg-zinc-800 transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        
+        <div className="aspect-video bg-black flex items-center justify-center">
+          <video 
+            ref={videoRef}
+            controls
+            className="w-full h-full object-contain"
+            playsInline
+          />
+        </div>
+        
+        <div className="p-4 bg-black/50 border-t border-gray-800 flex justify-end items-center gap-4">
+          <p className="text-xs text-gray-500 italic flex-grow">You are watching a preview. The full channel stream is available on the main player.</p>
+          <button 
+            onClick={onClose}
+            className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full font-bold text-xs uppercase tracking-wider transition-all"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

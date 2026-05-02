@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Osei TV</string>
+    <string name="title_activity_main">Osei TV</string>
+    <string name="package_name">com.oseitv.app</string>
+    <string name="custom_url_scheme">com.oseitv.app</string>
+</resources>

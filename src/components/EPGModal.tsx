@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, Tv } from 'lucide-react';
-import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from '../lib/epg';
+import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './epg';
 
 interface Channel {
   id: string;

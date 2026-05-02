@@ -62,6 +62,8 @@ export default function LiveChat({ channelId, user, onShowAuth }: LiveChatProps)
         }
       });
       setTypingUsers(typers);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `channels/${channelId}/typing`);
     });
 
     return () => {
@@ -119,6 +121,39 @@ export default function LiveChat({ channelId, user, onShowAuth }: LiveChatProps)
         displayName: userProfileName() || user.email?.split('@')[0] || 'User',
         timestamp: serverTimestamp()
       });
+
+      // AI Trigger
+      if (messageText.toLowerCase().startsWith('@ai ') || messageText.toLowerCase().startsWith('@assistant ')) {
+        // Set AI typing indicator
+        setDoc(doc(db, `channels/${channelId}/typing`, 'ai-assistant'), {
+          isTyping: true,
+          displayName: '🎬 Assistant',
+          lastTyped: serverTimestamp()
+        }).catch(console.error);
+
+        try {
+          const historyForAi = messages.slice(-10).map(m => ({
+            role: m.userId === 'ai-assistant' ? 'assistant' : 'user',
+            text: `${m.displayName}: ${m.text}`
+          }));
+
+          const cleanPrompt = messageText.replace(/^@(ai|assistant)\s+/i, '');
+          
+          const { askAssistant } = await import('../lib/gemini');
+          const aiReply = await askAssistant(cleanPrompt, historyForAi);
+
+          await addDoc(collection(db, `channels/${channelId}/messages`), {
+            text: aiReply,
+            userId: 'ai-assistant',
+            displayName: '🎬 Osei Assistant',
+            timestamp: serverTimestamp()
+          });
+        } catch (err) {
+          console.error("AI Assistant error:", err);
+        } finally {
+          deleteDoc(doc(db, `channels/${channelId}/typing`, 'ai-assistant')).catch(console.error);
+        }
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       handleFirestoreError(error, OperationType.CREATE, `channels/${channelId}/messages`);
@@ -151,16 +186,21 @@ export default function LiveChat({ channelId, user, onShowAuth }: LiveChatProps)
             No messages yet. Be the first to chat!
           </div>
         ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`text-sm ${msg.userId === user?.uid ? 'text-right' : 'text-left'}`}>
-              <span className={`font-bold text-xs ${msg.userId === user?.uid ? 'text-red-400' : 'text-gray-400'}`}>
-                {msg.displayName}
-              </span>
-              <p className={`inline-block px-3 py-1.5 rounded-lg mt-1 max-w-[85%] text-left ${msg.userId === user?.uid ? 'bg-red-600/20 text-gray-200 border border-red-900/30' : 'bg-black text-gray-300 border border-gray-800'}`}>
-                {msg.text}
-              </p>
-            </div>
-          ))
+          messages.map((msg) => {
+            const isUser = msg.userId === user?.uid;
+            const isAI = msg.userId === 'ai-assistant';
+            
+            return (
+              <div key={msg.id} className={`text-sm ${isUser ? 'text-right' : 'text-left'}`}>
+                <span className={`font-bold text-xs ${isUser ? 'text-red-400' : isAI ? 'text-yellow-400' : 'text-gray-400'}`}>
+                  {msg.displayName}
+                </span>
+                <p className={`inline-block px-3 py-1.5 rounded-lg mt-1 max-w-[85%] text-left ${isUser ? 'bg-red-600/20 text-gray-200 border border-red-900/30' : isAI ? 'bg-yellow-500/10 text-yellow-100 border border-yellow-500/30 font-medium' : 'bg-black text-gray-300 border border-gray-800'}`}>
+                  {msg.text}
+                </p>
+              </div>
+            );
+          })
         )}
         {typingUsers.length > 0 && (
           <div className="text-xs text-gray-500 italic mt-2 animate-pulse">
@@ -177,7 +217,7 @@ export default function LiveChat({ channelId, user, onShowAuth }: LiveChatProps)
               type="text"
               value={newMessage}
               onChange={handleKeyboardInput}
-              placeholder="Chat as..."
+              placeholder="Chat or ask @AI..."
               className="flex-1 bg-zinc-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
               maxLength={200}
             />
