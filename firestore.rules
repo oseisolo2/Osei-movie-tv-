@@ -75,7 +75,8 @@ service cloud.firestore {
       allow delete: if isSignedIn() && existing().ownerId == request.auth.uid;
       
       match /typing/{userId} {
-        allow read: if true;
+        allow get: if true;
+        allow list: if true;
         allow write: if isSignedIn() && (request.auth.uid == userId || userId == 'ai-assistant');
       }
       
