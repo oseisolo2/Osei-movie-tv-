@@ -125,6 +125,27 @@ async function startServer() {
     }
   });
 
+  // API Route to fetch external M3U playlists (CORS bypass)
+  app.get("/api/proxy-playlist", async (req, res) => {
+    try {
+      const { url } = req.query;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: "URL parameter is required" });
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `Failed to fetch from source: ${response.statusText}` });
+      }
+
+      const content = await response.text();
+      res.send(content);
+    } catch (err: any) {
+      console.error("Proxy error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

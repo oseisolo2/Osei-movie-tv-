@@ -68,14 +68,22 @@ const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({ onClose, user
     setSuccess(null);
 
     try {
-      // First try directly, might fail due to CORS
-      const response = await fetch(playlistUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch playlist (Status: ${response.status})`);
-      }
+      // Use the server-side proxy to avoid CORS issues
+      const proxyUrl = `/api/proxy-playlist?url=${encodeURIComponent(playlistUrl)}`;
+      const response = await fetch(proxyUrl);
       
-      const content = await response.text();
-      await processPlaylistContext(content);
+      if (!response.ok) {
+        // If proxy fails, try direct as fallback (some servers allow CORS)
+        const directResponse = await fetch(playlistUrl);
+        if (!directResponse.ok) {
+          throw new Error(`Failed to fetch playlist (Status: ${directResponse.status})`);
+        }
+        const content = await directResponse.text();
+        await processPlaylistContext(content);
+      } else {
+        const content = await response.text();
+        await processPlaylistContext(content);
+      }
     } catch (err: any) {
       console.error(err);
       setError(`Error fetching playlist: ${err.message}. If this is a CORS issue, try downloading the file and copy-pasting its contents, or finding a CORS-friendly URL.`);
