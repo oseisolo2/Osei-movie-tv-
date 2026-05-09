@@ -3,11 +3,14 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
-import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling } from 'lucide-react';
+import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling, ZoomIn } from 'lucide-react';
 import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './components/epg';
 import AuthModal from './components/AuthModal';
 import TermsModal from './TermsModal';
 import PrivacyModal from './components/PrivacyModal';
+import CopyrightModal from './components/CopyrightModal';
+import InfoTableModal from './components/InfoTableModal';
+import ImportPlaylistModal from './components/ImportPlaylistModal';
 import LiveChat from './components/LiveChat';
 import ShortcutsModal from './components/ShortcutsModal';
 import EPGModal from './components/EPGModal';
@@ -48,6 +51,7 @@ export default function App() {
   };
   
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showImportPlaylist, setShowImportPlaylist] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
   const [addChannelError, setAddChannelError] = useState<string | null>(null);
   const [newChannel, setNewChannel] = useState({ name: '', logo: '', category: '', url: '', description: '' });
@@ -63,6 +67,8 @@ export default function App() {
   const [showEPGModal, setShowEPGModal] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showCopyright, setShowCopyright] = useState(false);
+  const [showInfoTable, setShowInfoTable] = useState(false);
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [recentlyWatched, setRecentlyWatched] = useState<string[]>([]);
   const [showTrailerModal, setShowTrailerModal] = useState<string | null>(null);
@@ -75,6 +81,7 @@ export default function App() {
   const [volume, setVolume] = useState<number>(1);
   const [brightness, setBrightness] = useState<number>(100);
   const [objectFit, setObjectFit] = useState<"contain" | "cover" | "fill">("contain");
+  const [zoom, setZoom] = useState<number>(1);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -82,6 +89,12 @@ export default function App() {
   const [castAvailable, setCastAvailable] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const [audioMode, setAudioMode] = useState<'standard' | 'bass_boost' | 'theater' | 'vocal'>('standard');
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const filterNodesRef = useRef<BiquadFilterNode[]>([]);
+  const gainNodeRef = useRef<GainNode | null>(null);
 
   const getViewCount = (id: string) => {
     const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -251,13 +264,14 @@ export default function App() {
       const { addDoc } = await import('firebase/firestore');
       
       const channelToSave: any = { 
-        name: newChannel.name, 
-        url: newChannel.url,
-        ownerId: user?.uid
+        name: newChannel.name.substring(0, 100), 
+        url: newChannel.url.substring(0, 1000),
+        ownerId: user!.uid,
+        createdAt: serverTimestamp()
       };
-      if (newChannel.logo.trim()) channelToSave.logo = newChannel.logo.trim();
-      if (newChannel.category.trim()) channelToSave.category = newChannel.category.trim();
-      if (newChannel.description.trim()) channelToSave.description = newChannel.description.trim();
+      if (newChannel.logo.trim()) channelToSave.logo = newChannel.logo.trim().substring(0, 1000);
+      if (newChannel.category.trim()) channelToSave.category = newChannel.category.trim().substring(0, 50);
+      if (newChannel.description.trim()) channelToSave.description = newChannel.description.trim().substring(0, 500);
 
       await addDoc(collection(db, 'channels'), channelToSave);
       setNewChannel({ name: '', logo: '', category: '', url: '', description: '' });
@@ -446,6 +460,14 @@ export default function App() {
         logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/9/9c/PGA_Tour_logo.svg/512px-PGA_Tour_logo.svg.png'
       },
       {
+        id: 'sporty_tv_1',
+        name: 'Sporty TV',
+        url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+        category: 'Sports',
+        description: 'Sporty TV - Live Sports anywhere, anytime',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Sporty_TV_Logo.png/512px-Sporty_TV_Logo.png'
+      },
+      {
         id: 'music_vevo',
         name: 'Vevo Pop',
         url: 'https://vevo-pop-us.amagi.tv/playlist.m3u8',
@@ -567,6 +589,30 @@ export default function App() {
         category: 'Movies',
         description: 'Greatest hits from the golden age of cinema.',
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/FilmRise_logo.png/512px-FilmRise_logo.png'
+      },
+      {
+        id: 'highlights_sports',
+        name: 'Sports Highlights',
+        url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+        category: 'Highlights',
+        description: 'Best moments in sports, action, and racing',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/50/Sports_Icon.png/512px-Sports_Icon.png'
+      },
+      {
+        id: 'highlights_gaming',
+        name: 'Gaming Highlights',
+        url: 'https://ign-us.amagi.tv/playlist.m3u8',
+        category: 'Highlights',
+        description: 'Top plays and gaming moments',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Video_game_controller_icon_designed_by_Maico_Amorim.svg/512px-Video_game_controller_icon_designed_by_Maico_Amorim.svg.png'
+      },
+      {
+        id: 'highlights_sporty_tv',
+        name: 'Sporty TV Highlights',
+        url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+        category: 'Highlights',
+        description: 'Daily highlights from Sporty TV',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Sporty_TV_Logo.png/512px-Sporty_TV_Logo.png'
       }
     ];
 
@@ -864,6 +910,15 @@ export default function App() {
     });
   };
 
+  const toggleZoom = () => {
+    setZoom(current => {
+      if (current === 1) return 1.25;
+      if (current === 1.25) return 1.5;
+      if (current === 1.5) return 2;
+      return 1;
+    });
+  };
+
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
@@ -894,6 +949,74 @@ export default function App() {
     if (videoRef.current) {
       videoRef.current.playbackRate = rate;
     }
+  };
+
+  const handleAudioModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newMode = e.target.value as any;
+    setAudioMode(newMode);
+    
+    if (!audioCtxRef.current && videoRef.current) {
+      try {
+        const AudioContextCls = window.AudioContext || (window as any).webkitAudioContext;
+        audioCtxRef.current = new AudioContextCls();
+        sourceNodeRef.current = audioCtxRef.current.createMediaElementSource(videoRef.current);
+        gainNodeRef.current = audioCtxRef.current.createGain();
+      } catch (err) {
+        console.warn("AudioContext init failed", err);
+        showToast("Audio processing not supported on this stream due to constraints.");
+        return;
+      }
+    }
+    
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+
+    if (!audioCtxRef.current || !sourceNodeRef.current || !gainNodeRef.current) return;
+    
+    try {
+      filterNodesRef.current.forEach(node => node.disconnect());
+      sourceNodeRef.current.disconnect();
+      gainNodeRef.current.disconnect();
+    } catch(e){}
+    
+    let filters: BiquadFilterNode[] = [];
+    
+    if (newMode === 'bass_boost') {
+      const filter = audioCtxRef.current.createBiquadFilter();
+      filter.type = 'lowshelf';
+      filter.frequency.value = 150;
+      filter.gain.value = 12;
+      filters = [filter];
+    } else if (newMode === 'theater') {
+      const bass = audioCtxRef.current.createBiquadFilter();
+      bass.type = 'lowshelf';
+      bass.frequency.value = 150;
+      bass.gain.value = 8;
+      const treble = audioCtxRef.current.createBiquadFilter();
+      treble.type = 'highshelf';
+      treble.frequency.value = 4000;
+      treble.gain.value = 6;
+      bass.connect(treble);
+      filters = [bass, treble];
+    } else if (newMode === 'vocal') {
+      const mid = audioCtxRef.current.createBiquadFilter();
+      mid.type = 'peaking';
+      mid.frequency.value = 1500;
+      mid.Q.value = 1.0;
+      mid.gain.value = 10;
+      filters = [mid];
+    }
+
+    if (filters.length > 0) {
+      sourceNodeRef.current.connect(filters[0]);
+      filters[filters.length - 1].connect(gainNodeRef.current);
+    } else {
+      sourceNodeRef.current.connect(gainNodeRef.current);
+    }
+    
+    filterNodesRef.current = filters;
+    gainNodeRef.current.connect(audioCtxRef.current.destination);
   };
 
   const toggleMute = () => {
@@ -1198,6 +1321,12 @@ export default function App() {
                   {user.email}
                 </span>
                 <button 
+                  onClick={() => setShowImportPlaylist(true)} 
+                  className="shrink-0 text-[10px] bg-red-800 hover:bg-red-700 font-bold px-3 py-1 rounded transition whitespace-nowrap"
+                >
+                  + ADD PLAYLIST
+                </button>
+                <button 
                   onClick={() => setShowAddForm(!showAddForm)} 
                   className="shrink-0 text-[10px] bg-red-800 hover:bg-red-700 font-bold px-3 py-1 rounded transition whitespace-nowrap"
                 >
@@ -1271,6 +1400,18 @@ export default function App() {
 
         {showPrivacy && (
           <PrivacyModal onClose={() => setShowPrivacy(false)} />
+        )}
+
+        {showCopyright && (
+          <CopyrightModal onClose={() => setShowCopyright(false)} />
+        )}
+
+        {showInfoTable && (
+          <InfoTableModal onClose={() => setShowInfoTable(false)} channels={channels} />
+        )}
+
+        {showImportPlaylist && (
+          <ImportPlaylistModal onClose={() => setShowImportPlaylist(false)} user={user} />
         )}
 
         {isSubscribeModalOpen && (
@@ -1593,7 +1734,7 @@ export default function App() {
                 controls 
                 autoPlay 
                 playsInline
-                style={{ filter: `brightness(${brightness}%)`, objectFit }}
+                style={{ filter: `brightness(${brightness}%)`, objectFit, transform: `scale(${zoom})`, transformOrigin: 'center' }}
                 crossOrigin="anonymous"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1793,6 +1934,13 @@ export default function App() {
                 >
                   <Scaling className="w-4 h-4" /> {objectFit}
                 </button>
+                <button 
+                  onClick={toggleZoom}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs font-bold uppercase transition"
+                  title={`Zoom (current: ${zoom}x)`}
+                >
+                  <ZoomIn className="w-4 h-4" /> {zoom}x
+                </button>
               </>
             )}
 
@@ -1905,6 +2053,23 @@ export default function App() {
             </div>
           )}
 
+          {/* Audio EQ Selector */}
+          {!isYouTube && currentChannel && (
+            <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700 shrink-0">
+              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Audio</span>
+              <select 
+                value={audioMode}
+                onChange={handleAudioModeChange}
+                className="bg-transparent text-sm font-semibold text-white outline-none cursor-pointer"
+              >
+                <option value="standard" className="bg-zinc-800">Standard</option>
+                <option value="bass_boost" className="bg-zinc-800">Bass Boost</option>
+                <option value="theater" className="bg-zinc-800">Theater</option>
+                <option value="vocal" className="bg-zinc-800">Vocal Boost</option>
+              </select>
+            </div>
+          )}
+
           {/* Quality Selector */}
           {qualities.length > 0 && (
             <div className="flex items-center gap-2 bg-black px-3 py-1.5 rounded-lg border border-gray-700">
@@ -1979,69 +2144,42 @@ export default function App() {
                       </button>
                     )}
                   </div>
+                  
+                  <div className="relative w-full sm:w-48 group">
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="bg-zinc-900 border border-gray-700 text-white text-sm rounded-md px-3 py-2 pr-8 focus:outline-none focus:border-red-500 w-full appearance-none transition-all cursor-pointer font-medium"
+                    >
+                      <option value="All">All Categories</option>
+                      <option value="Favorites">⭐️ Favorites</option>
+                      <option value="Trailers">▶️ Trailers</option>
+                      <optgroup label="Categories">
+                        {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).sort().map(category => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {(selectedCategory !== 'All' || searchQuery) && (
+                    <button
+                      onClick={() => {
+                        setSelectedCategory('All');
+                        setSearchQuery('');
+                      }}
+                      className="shrink-0 px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md bg-zinc-900 text-white border border-gray-700 hover:border-gray-500 hover:bg-zinc-800 transition-all flex items-center gap-1.5"
+                    >
+                      <X className="w-3 h-3" /> Clear
+                    </button>
+                  )}
                 </div>
             </div>
-
-            {channels.length > 0 && (
-              <div className="flex flex-wrap gap-2 pb-4 mb-2 w-full">
-                <button
-                  onClick={() => setSelectedCategory('All')}
-                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all ${
-                    selectedCategory === 'All' 
-                      ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
-                      : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setSelectedCategory('Trailers')}
-                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all flex items-center gap-1.5 ${
-                    selectedCategory === 'Trailers' 
-                      ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
-                      : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
-                  }`}
-                >
-                  <PlayCircle className="w-3 h-3" /> Trailers
-                </button>
-                {Array.from(new Set(channels.filter(c => c.category).map(c => c.category))).sort().map(category => (
-                  <button
-                    key={category}
-                    onClick={() => setSelectedCategory(category)}
-                    className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all ${
-                      selectedCategory === category 
-                        ? 'bg-red-600 text-white shadow-lg shadow-red-900/40' 
-                        : 'bg-zinc-800 text-gray-400 hover:bg-zinc-700 hover:text-white'
-                    }`}
-                  >
-                    {category}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setSelectedCategory(selectedCategory === 'Favorites' ? 'All' : 'Favorites')}
-                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full transition-all flex items-center gap-1.5 ${
-                    selectedCategory === 'Favorites' 
-                      ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-900/40' 
-                      : 'bg-zinc-800 text-yellow-500 hover:bg-zinc-700 hover:text-white'
-                  }`}
-                >
-                  <Star className="w-3.5 h-3.5" fill={selectedCategory === 'Favorites' ? "currentColor" : "none"} /> 
-                  Favorites
-                </button>
-                {(selectedCategory !== 'All' || searchQuery) && (
-                  <button
-                    onClick={() => {
-                      setSelectedCategory('All');
-                      setSearchQuery('');
-                    }}
-                    className="shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full bg-zinc-900 text-white border border-gray-700 hover:border-gray-500 transition-all flex items-center gap-1.5"
-                  >
-                    <X className="w-3 h-3" />
-                    Clear Filters
-                  </button>
-                )}
-              </div>
-            )}
 
             {recentlyWatched.length > 0 && selectedCategory === 'All' && !searchQuery && (
               <div className="mb-6 animate-in fade-in slide-in-from-left-2 duration-700">
@@ -2206,6 +2344,8 @@ export default function App() {
             <a href="#" className="hover:text-red-400 transition">Check for Updates</a>
             <button className="hover:text-red-400 transition" onClick={() => setShowTerms(true)}>Terms of Service</button>
             <button className="hover:text-red-400 transition" onClick={() => setShowPrivacy(true)}>Privacy Policy</button>
+            <button className="hover:text-red-400 transition" onClick={() => setShowCopyright(true)}>Copyright</button>
+            <button className="hover:text-red-400 transition" onClick={() => setShowInfoTable(true)}>Information Table</button>
             <span className="hidden sm:inline text-gray-700">|</span>
             <span className="text-gray-400 italic">Thank You!</span>
           </div>
@@ -2326,9 +2466,14 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({ onClose, userEmail }) =
       const data = await res.json();
       if (data.clientSecret) {
         setClientSecret(data.clientSecret);
+      } else if (data.error) {
+        alert(`Payment Error: ${data.error}`);
+        setSelectedPlan(null);
       }
     } catch (e) {
       console.error(e);
+      alert('Failed to connect to payment server. Please try again.');
+      setSelectedPlan(null);
     }
   };
 
@@ -2362,13 +2507,20 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({ onClose, userEmail }) =
           ) : clientSecret && selectedPlan ? (
             <div className="max-w-md mx-auto py-8">
                <h2 className="text-2xl font-bold text-white mb-6 text-center">Complete Payment</h2>
-               <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night' } }}>
-                 <CheckoutForm 
-                    planName={selectedPlan} 
-                    onBack={() => { setClientSecret(''); setSelectedPlan(null); }} 
-                    onSuccess={() => setIsSuccess(true)} 
-                  />
-               </Elements>
+               {clientSecret.includes('mock') ? (
+                 <div className="text-center space-y-4">
+                   <p className="text-gray-400">Payment bypassed (using development mock mode).</p>
+                   <button onClick={() => setIsSuccess(true)} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold w-full uppercase">Confirm Mock Payment</button>
+                 </div>
+               ) : (
+                 <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night' } }}>
+                   <CheckoutForm 
+                      planName={selectedPlan} 
+                      onBack={() => { setClientSecret(''); setSelectedPlan(null); }} 
+                      onSuccess={() => setIsSuccess(true)} 
+                    />
+                 </Elements>
+               )}
             </div>
           ) : (
             <>
