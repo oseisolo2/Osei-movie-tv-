@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove, addDoc, serverTimestamp } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
-import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling, ZoomIn } from 'lucide-react';
+import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling, ZoomIn, Twitter, Instagram, Youtube, Facebook, Mail, Smartphone, Monitor } from 'lucide-react';
 import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './components/epg';
 import AuthModal from './components/AuthModal';
 import TermsModal from './TermsModal';
@@ -15,7 +15,7 @@ import LiveChat from './components/LiveChat';
 import ShortcutsModal from './components/ShortcutsModal';
 import EPGModal from './components/EPGModal';
 
-interface Channel {
+export interface Channel {
   id: string;
   name: string;
   logo?: string;
@@ -72,6 +72,7 @@ export default function App() {
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [recentlyWatched, setRecentlyWatched] = useState<string[]>([]);
   const [showTrailerModal, setShowTrailerModal] = useState<string | null>(null);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   
   // Quality options state
   const [qualities, setQualities] = useState<any[]>([]);
@@ -231,11 +232,11 @@ export default function App() {
     }
   };
 
-  const handleAddChannel = async (e: import('react').FormEvent) => {
+  const handleSaveChannel = async (e: import('react').FormEvent) => {
     e.preventDefault();
     setAddChannelError(null);
     if (!user) {
-      setAddChannelError("Please log in to add a new channel.");
+      setAddChannelError("Please log in to save a channel.");
       setShowAuthModal(true);
       return;
     }
@@ -261,25 +262,33 @@ export default function App() {
 
     setAdding(true);
     try {
-      const { addDoc } = await import('firebase/firestore');
+      const { addDoc, updateDoc, doc, collection } = await import('firebase/firestore');
       
       const channelToSave: any = { 
         name: newChannel.name.substring(0, 100), 
         url: newChannel.url.substring(0, 1000),
-        ownerId: user!.uid,
-        createdAt: serverTimestamp()
+        updatedAt: serverTimestamp()
       };
       if (newChannel.logo.trim()) channelToSave.logo = newChannel.logo.trim().substring(0, 1000);
       if (newChannel.category.trim()) channelToSave.category = newChannel.category.trim().substring(0, 50);
       if (newChannel.description.trim()) channelToSave.description = newChannel.description.trim().substring(0, 500);
 
-      await addDoc(collection(db, 'channels'), channelToSave);
+      if (editingChannelId) {
+        await updateDoc(doc(db, 'channels', editingChannelId), channelToSave);
+        log(`Successfully updated channel: ${newChannel.name}`);
+      } else {
+        channelToSave.ownerId = user.uid;
+        channelToSave.createdAt = serverTimestamp();
+        await addDoc(collection(db, 'channels'), channelToSave);
+        log(`Successfully added channel: ${newChannel.name}`);
+      }
+      
       setNewChannel({ name: '', logo: '', category: '', url: '', description: '' });
       setShowAddForm(false);
-      log(`Successfully added channel: ${newChannel.name}`);
+      setEditingChannelId(null);
     } catch (err: any) {
-      setAddChannelError('Failed to add channel. Please make sure the stream URL is correct and you have permission.');
-      handleFirestoreError(err, OperationType.CREATE, 'channels');
+      setAddChannelError('Failed to save channel. Please make sure the stream URL is correct and you have permission.');
+      handleFirestoreError(err, editingChannelId ? OperationType.UPDATE : OperationType.CREATE, editingChannelId ? `channels/${editingChannelId}` : 'channels');
     } finally {
       setAdding(false);
     }
@@ -308,18 +317,6 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribeProfile: () => void = () => {};
-
-    const testConnection = async () => {
-      try {
-        const { getDocFromServer, doc } = await import('firebase/firestore');
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    };
-    testConnection();
 
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -355,6 +352,22 @@ export default function App() {
     log("Firebase connected successfully.");
 
     const defaultChannels: Channel[] = [
+      {
+        id: 'news_bloomberg',
+        name: 'Bloomberg TV',
+        url: 'https://live.bloomberg.tv/hls/eu.m3u8',
+        category: 'News',
+        description: 'Global business and financial news',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Bloomberg_News_logo_%282025%29.svg/512px-Bloomberg_News_logo_%282025%29.svg.png'
+      },
+      {
+        id: 'sports_realmadrid',
+        name: 'Real Madrid TV',
+        url: 'https://rmtvlive.realmadrid.com/rmtv/rmtv_hd.m3u8',
+        category: 'Sports',
+        description: 'Official channel of Real Madrid CF',
+        logo: 'https://upload.wikimedia.org/wikipedia/en/thumb/5/56/Real_Madrid_CF.svg/512px-Real_Madrid_CF.svg.png'
+      },
       {
         id: 'local_news_1',
         name: 'Sky News',
@@ -557,6 +570,78 @@ export default function App() {
         category: 'Kids',
         description: 'Cartoons and kids shows',
         logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Toon_Goggles_logo.png/512px-Toon_Goggles_logo.png'
+      },
+      {
+        id: 'kids_batterypop',
+        name: 'BatteryPop',
+        url: 'https://batterypop-us.amagi.tv/playlist.m3u8',
+        category: 'Kids',
+        description: 'Awesome videos for kids',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/BatteryPOP_Logo.png/512px-BatteryPOP_Logo.png'
+      },
+      {
+        id: 'anime_retrocrush',
+        name: 'RetroCrush',
+        url: 'https://retrocrush-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Entertainment',
+        description: 'Classic Anime Channel',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/RetroCrush_logo.png/512px-RetroCrush_logo.png'
+      },
+      {
+        id: 'comedy_failarmy',
+        name: 'FailArmy',
+        url: 'https://failarmy-us.amagi.tv/playlist.m3u8',
+        category: 'Comedy',
+        description: 'Epic fails and funny videos',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/FailArmy_Logo.png/512px-FailArmy_Logo.png'
+      },
+      {
+        id: 'lifestyle_petcollective',
+        name: 'The Pet Collective',
+        url: 'https://petcollective-us.amagi.tv/playlist.m3u8',
+        category: 'Lifestyle',
+        description: 'Trending pet videos and funny animals',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/The_Pet_Collective_logo.png/512px-The_Pet_Collective_logo.png'
+      },
+      {
+        id: 'doc_timeline',
+        name: 'Timeline',
+        url: 'https://timeline-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Documentary',
+        description: 'Historical documentaries and history series',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Timeline_Logo.jpg/512px-Timeline_Logo.jpg'
+      },
+      {
+        id: 'food_bonappetit',
+        name: 'Bon Appétit',
+        url: 'https://bonappetit-us.amagi.tv/playlist.m3u8',
+        category: 'Lifestyle',
+        description: 'Food, recipes, and cooking entertainment',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Bon_App%C3%A9tit_logo.svg/512px-Bon_App%C3%A9tit_logo.svg.png'
+      },
+      {
+        id: 'movies_maverick',
+        name: 'Maverick Black Cinema',
+        url: 'https://maverickblackcinema-us.amagi.tv/playlist.m3u8',
+        category: 'Movies',
+        description: 'The best in Black cinema',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Maverick_Entertainment_Group_logo.png/512px-Maverick_Entertainment_Group_logo.png'
+      },
+      {
+        id: 'sports_billard',
+        name: 'Billiard TV',
+        url: 'https://billiardtv-us.amagi.tv/playlist.m3u8',
+        category: 'Sports',
+        description: 'Billiard matches and tournaments',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Billiard_TV_logo.png/512px-Billiard_TV_logo.png'
+      },
+      {
+        id: 'music_trace_urban',
+        name: 'Trace Urban',
+        url: 'https://trace-urban-eu.rakuten.wurl.tv/playlist.m3u8',
+        category: 'Music',
+        description: 'Hip-hop and R&B music videos',
+        logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/TRACE_Urban_logo.png/512px-TRACE_Urban_logo.png'
       },
       {
         id: 'news_bloomberg',
@@ -1327,10 +1412,14 @@ export default function App() {
                   + ADD PLAYLIST
                 </button>
                 <button 
-                  onClick={() => setShowAddForm(!showAddForm)} 
+                  onClick={() => {
+                    setEditingChannelId(null);
+                    setNewChannel({ name: '', logo: '', category: '', url: '', description: '' });
+                    setShowAddForm(!showAddForm);
+                  }} 
                   className="shrink-0 text-[10px] bg-red-800 hover:bg-red-700 font-bold px-3 py-1 rounded transition whitespace-nowrap"
                 >
-                  {showAddForm ? 'CANCEL ADD' : '+ ADD CHANNEL'}
+                  {showAddForm ? 'CANCEL' : '+ ADD CHANNEL'}
                 </button>
                 <button
                   onClick={() => setShowProfileModal(true)}
@@ -1407,7 +1496,13 @@ export default function App() {
         )}
 
         {showInfoTable && (
-          <InfoTableModal onClose={() => setShowInfoTable(false)} channels={channels} />
+          <InfoTableModal 
+            onClose={() => setShowInfoTable(false)} 
+            channels={channels} 
+            onPlay={playStream}
+            onFavorite={(channel) => toggleFavorite({ stopPropagation: () => {} } as any, channel)}
+            favoriteIds={userProfile?.favoriteChannels || []}
+          />
         )}
 
         {showImportPlaylist && (
@@ -1574,10 +1669,12 @@ export default function App() {
           </div>
         )}
 
-        {/* Add Channel Form */}
+        {/* Add/Edit Channel Form */}
         {showAddForm && (
           <div className="p-4 bg-zinc-900 border-b border-gray-800">
-            <h3 className="text-red-500 font-bold text-sm mb-3">Add New Channel</h3>
+            <h3 className="text-red-500 font-bold text-sm mb-3">
+              {editingChannelId ? 'Update Channel' : 'Add New Channel'}
+            </h3>
             
             {addChannelError && (
               <div className="mb-4 bg-red-500/20 border border-red-500 text-red-500 text-xs p-3 rounded">
@@ -1585,7 +1682,7 @@ export default function App() {
               </div>
             )}
             
-            <form onSubmit={handleAddChannel} className="space-y-3">
+            <form onSubmit={handleSaveChannel} className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Channel Name *</label>
                 <input 
@@ -1686,7 +1783,10 @@ export default function App() {
               <div className="flex justify-end gap-2 mt-4">
                 <button 
                   type="button" 
-                  onClick={() => setShowAddForm(false)}
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setEditingChannelId(null);
+                  }}
                   className="px-4 py-2 text-xs bg-gray-800 hover:bg-gray-700 rounded transition"
                 >
                   Cancel
@@ -1696,7 +1796,7 @@ export default function App() {
                   disabled={adding}
                   className="px-4 py-2 text-xs bg-red-600 hover:bg-red-500 font-bold rounded transition disabled:opacity-50"
                 >
-                  {adding ? 'Adding...' : 'Save Channel'}
+                  {adding ? 'Saving...' : (editingChannelId ? 'Update Channel' : 'Save Channel')}
                 </button>
               </div>
             </form>
@@ -1953,6 +2053,22 @@ export default function App() {
               <Share2 className="w-4 h-4" /> Share
             </button>
 
+            {/* Favorite Toggle Button */}
+            {currentChannel && (
+              <button 
+                onClick={(e) => toggleFavorite(e, currentChannel)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition ${
+                  userProfile?.favoriteChannels?.includes(currentChannel.id)
+                    ? 'bg-yellow-500/20 border-yellow-500 text-yellow-500 hover:bg-yellow-500/30'
+                    : 'bg-black border-gray-700 text-gray-300 hover:text-white hover:border-gray-500'
+                }`}
+                title={userProfile?.favoriteChannels?.includes(currentChannel.id) ? "Remove from Favorites" : "Add to Favorites"}
+              >
+                <Star className={`w-4 h-4 ${userProfile?.favoriteChannels?.includes(currentChannel.id) ? 'fill-current' : ''}`} />
+                {userProfile?.favoriteChannels?.includes(currentChannel.id) ? 'Favorited' : 'Favorite'}
+              </button>
+            )}
+
           {/* Media Transport Controls */}
           {currentChannel && (
             <div className="flex bg-black rounded-lg border border-gray-700 p-0.5 shrink-0">
@@ -2181,6 +2297,40 @@ export default function App() {
                 </div>
             </div>
 
+            {selectedCategory === 'All' && !searchQuery && filteredChannels.length > 0 && (
+              <div 
+                className="mb-8 relative rounded-2xl overflow-hidden group border border-gray-800 hover:border-gray-600 transition-colors cursor-pointer animate-in fade-in slide-in-from-bottom-4 duration-700 shadow-2xl" 
+                onClick={() => playStream(filteredChannels.find(c => c.category === 'Movies') || filteredChannels[0])}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-transparent z-10 pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent z-10 pointer-events-none" />
+                <img 
+                  src={(filteredChannels.find(c => c.category === 'Movies') || filteredChannels[0])?.logo || PLACEHOLDER_LOGO}
+                  className="w-full h-[240px] md:h-[320px] object-cover opacity-60 group-hover:scale-105 transition-all duration-1000"
+                  onError={handleImageError}
+                  alt="Featured"
+                />
+                <div className="absolute bottom-0 left-0 p-6 md:p-8 z-20 w-full md:w-3/4 lg:w-2/3">
+                  <div className="flex gap-2 items-center mb-3">
+                    <span className="bg-red-600 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded">Spotlight</span>
+                    <span className="text-gray-300 text-xs font-bold bg-black/50 px-2 py-1 rounded backdrop-blur-md">
+                      {(filteredChannels.find(c => c.category === 'Movies') || filteredChannels[0])?.category || 'Featured'}
+                    </span>
+                  </div>
+                  <h2 className="text-3xl md:text-5xl font-black text-white mb-3 tracking-tight drop-shadow-xl">
+                    {(filteredChannels.find(c => c.category === 'Movies') || filteredChannels[0])?.name}
+                  </h2>
+                  <p className="text-sm md:text-base text-gray-300 mb-6 drop-shadow-md line-clamp-2 md:line-clamp-3">
+                    {(filteredChannels.find(c => c.category === 'Movies') || filteredChannels[0])?.description || "Watch top quality streams directly on Osei TV. Discover our editor's picks specifically curated for you."}
+                  </p>
+                  
+                  <button className="bg-white text-black hover:bg-neutral-200 px-6 py-2.5 rounded-full font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:scale-105 flex items-center gap-2 group-hover:bg-red-600 group-hover:text-white group-hover:shadow-[0_0_20px_rgba(220,38,38,0.5)]">
+                    <Play className="w-4 h-4 fill-current" /> Watch Now
+                  </button>
+                </div>
+              </div>
+            )}
+
             {recentlyWatched.length > 0 && selectedCategory === 'All' && !searchQuery && (
               <div className="mb-6 animate-in fade-in slide-in-from-left-2 duration-700">
                 <h4 className="text-gray-500 uppercase text-[10px] font-bold mb-3 flex items-center gap-2">
@@ -2290,25 +2440,48 @@ export default function App() {
                       />
                     </button>
                     {channel.ownerId === user?.uid && (
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (window.confirm(`Are you sure you want to delete ${channel.name}?`)) {
-                            try {
-                              const { deleteDoc, doc } = await import('firebase/firestore');
-                              await deleteDoc(doc(db, 'channels', channel.id));
-                              log(`Deleted channel: ${channel.name}`);
-                            } catch (err) {
-                              console.error("Delete error:", err);
-                              alert("Failed to delete channel.");
+                      <div className="flex flex-col gap-1 mr-2 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNewChannel({
+                              name: channel.name,
+                              url: channel.url,
+                              logo: channel.logo || '',
+                              category: channel.category || '',
+                              description: channel.description || ''
+                            });
+                            // We need a way to track we are editing. We'll use a temporary state or just repurpose showAddForm.
+                            // For simplicity, let's just add a temporary 'editingChannelId' state.
+                            (window as any).editingChannelId = channel.id; 
+                            setEditingChannelId(channel.id);
+                            setShowAddForm(true);
+                          }}
+                          className="p-1.5 hover:bg-zinc-600 text-gray-400 hover:text-blue-400 rounded-lg transition"
+                          title="Edit channel"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Are you sure you want to delete ${channel.name}?`)) {
+                              try {
+                                const { deleteDoc, doc } = await import('firebase/firestore');
+                                await deleteDoc(doc(db, 'channels', channel.id));
+                                log(`Deleted channel: ${channel.name}`);
+                              } catch (err) {
+                                console.error("Delete error:", err);
+                                alert("Failed to delete channel.");
+                              }
                             }
-                          }
-                        }}
-                        className="mr-3 p-2 hover:bg-red-900/50 hover:text-red-500 text-gray-500 rounded-full transition"
-                        title="Delete channel"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                          }}
+                          className="p-1.5 hover:bg-red-900/50 hover:text-red-500 text-gray-500 rounded-lg transition"
+                          title="Delete channel"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                     <PlayCircle className="text-gray-500 group-hover:text-red-600 transition w-5 h-5 flex-shrink-0" />
                   </div>
@@ -2332,6 +2505,24 @@ export default function App() {
 
         {/* Footer */}
         <footer className="mt-12 border-t border-gray-800 p-8 flex flex-col items-center gap-6 text-sm text-gray-500 font-medium">
+          <div className="flex gap-6 mb-2">
+            <a href="#" className="hover:text-red-500 transition-colors" title="Follow on Twitter">
+              <Twitter className="w-5 h-5" />
+            </a>
+            <a href="#" className="hover:text-pink-500 transition-colors" title="Follow on Instagram">
+              <Instagram className="w-5 h-5" />
+            </a>
+            <a href="#" className="hover:text-red-600 transition-colors" title="Watch on YouTube">
+              <Youtube className="w-5 h-5" />
+            </a>
+            <a href="#" className="hover:text-blue-600 transition-colors" title="Join on Facebook">
+              <Facebook className="w-5 h-5" />
+            </a>
+            <a href="mailto:contact@oseitv.com" className="hover:text-white transition-colors" title="Contact Us">
+              <Mail className="w-5 h-5" />
+            </a>
+          </div>
+          
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs md:text-sm">
             <a href="#" className="hover:text-red-400 transition" target="_blank" rel="noopener noreferrer">Join our Group</a>
             <a href="#" className="hover:text-red-400 transition" target="_blank" rel="noopener noreferrer">Forum</a>
@@ -2365,7 +2556,7 @@ import {
   useElements,
 } from '@stripe/react-stripe-js';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
+const stripePromise = loadStripe((import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder');
 
 interface SubscribeModalProps {
   onClose: () => void;
@@ -2611,48 +2802,51 @@ const DownloadAppModal: React.FC<DownloadAppModalProps> = ({ onClose }) => {
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Phone Support */}
+            {/* Android Support */}
             <div className="bg-black border border-gray-800 rounded-2xl p-6 hover:border-red-600/50 transition-colors group">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-blue-500/10 rounded-lg group-hover:bg-blue-500/20 transition-colors">
-                  <Cast className="w-5 h-5 text-blue-500" />
+                  <Smartphone className="w-5 h-5 text-blue-500" />
                 </div>
-                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Android (Phone)</h3>
+                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Android App</h3>
               </div>
               <p className="text-xs text-gray-400 mb-4 leading-relaxed">
-                Install our native Android app for smooth streaming and offline favorites.
+                Add to your phone for a full-screen experience and fast access.
               </p>
               <div className="space-y-3">
                 <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
-                  <p className="font-bold text-gray-300 mb-1">How to install:</p>
+                  <p className="font-bold text-gray-300 mb-1">Easy Install (PWA):</p>
                   <ol className="list-decimal pl-4 space-y-1 text-gray-400">
-                    <li>Export the project as a ZIP (Settings &gt; Export).</li>
-                    <li>Open the <code className="text-blue-400">android</code> folder in Android Studio.</li>
-                    <li>Build and Run on your connected phone.</li>
+                    <li>Open this URL in <strong>Chrome</strong>.</li>
+                    <li>Tap the 3 dots (⋮) and select <strong>"Install App"</strong>.</li>
                   </ol>
+                </div>
+                <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
+                  <p className="font-bold text-gray-300 mb-1">Full Native App:</p>
+                  <p className="text-gray-400 italic">Export as ZIP &gt; Open 'android' folder in Android Studio.</p>
                 </div>
               </div>
             </div>
 
-            {/* Laptop Support */}
+            {/* Windows / Desktop Support */}
             <div className="bg-black border border-gray-800 rounded-2xl p-6 hover:border-red-600/50 transition-colors group">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-purple-500/10 rounded-lg group-hover:bg-purple-500/20 transition-colors">
-                  <PlayCircle className="w-5 h-5 text-purple-500" />
+                  <Monitor className="w-5 h-5 text-purple-500" />
                 </div>
-                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Laptop / Desktop</h3>
+                <h3 className="font-bold text-white uppercase tracking-wider text-sm">Windows & Mac</h3>
               </div>
               <p className="text-xs text-gray-400 mb-4 leading-relaxed">
-                Use Osei TV as a standalone desktop app or directly in your favorite browser.
+                Install Osei TV as a standalone desktop application.
               </p>
               <div className="space-y-3">
                 <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
-                  <p className="font-bold text-gray-300 mb-1">Option 1: Browser</p>
-                  <p className="text-gray-400">Just visit our URL in Chrome or Safari. No installation required!</p>
-                </div>
-                <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
-                  <p className="font-bold text-gray-300 mb-1">Option 2: Install as PWA</p>
-                  <p className="text-gray-400">Click the "Install" icon in your browser's address bar to add Osei TV to your dock.</p>
+                  <p className="font-bold text-gray-300 mb-1">Installation Steps:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-gray-400">
+                    <li>Open this site in <strong>Edge</strong> or <strong>Chrome</strong>.</li>
+                    <li>Look for the <strong>"Install"</strong> icon (⊕) in the address bar.</li>
+                    <li>Click <strong>Install</strong> to add Osei TV to your Desktop.</li>
+                  </ol>
                 </div>
               </div>
             </div>

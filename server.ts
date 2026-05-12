@@ -15,7 +15,7 @@ export function getStripe(): Stripe {
       throw new Error('STRIPE_SECRET_KEY environment variable is required');
     }
     stripeClient = new Stripe(key, {
-      apiVersion: '2025-02-24.acacia',
+      apiVersion: '2026-04-22.dahlia',
     });
   }
   return stripeClient;
