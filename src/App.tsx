@@ -3,8 +3,9 @@ import { collection, onSnapshot, doc, setDoc, updateDoc, arrayUnion, arrayRemove
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import Hls from 'hls.js';
-import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling, ZoomIn, Twitter, Instagram, Youtube, Facebook, Mail, Smartphone, Monitor } from 'lucide-react';
+import { Tv, PlayCircle, ListVideo, Star, LogIn, LogOut, User as UserIcon, Settings, X, PlusCircle, Trash2, History, SkipBack, SkipForward, Scissors, Square, Camera, Volume2, VolumeX, Keyboard, Cast, Share2, PictureInPicture, Sun, Rewind, FastForward, Pause, Play, Maximize, Scaling, ZoomIn, Twitter, Instagram, Youtube, Facebook, Mail, Smartphone, Monitor, Sparkles } from 'lucide-react';
 import { generateSchedule, getCurrentlyPlaying, getUpNext, Program } from './components/epg';
+import { getGeminiRecommendations } from './services/geminiService';
 import AuthModal from './components/AuthModal';
 import TermsModal from './TermsModal';
 import PrivacyModal from './components/PrivacyModal';
@@ -71,6 +72,7 @@ export default function App() {
   const [showInfoTable, setShowInfoTable] = useState(false);
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [recentlyWatched, setRecentlyWatched] = useState<string[]>([]);
+  const [aiRecommendations, setAiRecommendations] = useState<string[]>([]);
   const [showTrailerModal, setShowTrailerModal] = useState<string | null>(null);
   const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   
@@ -809,6 +811,29 @@ export default function App() {
                           (channel.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  // AI Recommendations
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      if (channels.length > 0 && (recentlyWatched.length > 0 || (userProfile?.favoriteChannels?.length ?? 0) > 0)) {
+        try {
+          const recs = await getGeminiRecommendations(
+            recentlyWatched.map(id => channels.find(c => c.id === id)?.name || id),
+            (userProfile?.favoriteChannels || []).map(id => channels.find(c => c.id === id)?.name || id),
+            channels
+          );
+          if (recs && Array.isArray(recs)) {
+            setAiRecommendations(recs);
+          }
+        } catch (error) {
+          console.warn("Could not fetch AI recommendations:", error);
+        }
+      }
+    };
+
+    const timer = setTimeout(fetchRecommendations, 3000); // Delay to avoid blocking initial load
+    return () => clearTimeout(timer);
+  }, [recentlyWatched, userProfile?.favoriteChannels, channels]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -2331,6 +2356,44 @@ export default function App() {
               </div>
             )}
 
+            {selectedCategory === 'All' && !searchQuery && aiRecommendations.length > 0 && (
+              <div className="mb-8 animate-in fade-in slide-in-from-right-4 duration-1000">
+                <h4 className="text-red-500 uppercase text-[10px] font-black mb-3 flex items-center gap-2 tracking-[0.2em]">
+                  <Sparkles className="w-3 h-3 fill-current" />
+                  AI Recommended for You
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {aiRecommendations.map(recId => {
+                    const channel = channels.find(c => c.id === recId || c.name.toLowerCase().includes(recId.toLowerCase()));
+                    if (!channel) return null;
+                    return (
+                      <div 
+                        key={`ai-rec-${channel.id}`}
+                        onClick={() => playStream(channel)}
+                        className="group relative h-32 rounded-xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-red-600/50 transition-all shadow-lg hover:shadow-red-900/10"
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10" />
+                        <img 
+                          src={channel.logo || PLACEHOLDER_LOGO} 
+                          alt={channel.name} 
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                          onError={handleImageError}
+                        />
+                        <div className="absolute bottom-0 left-0 p-3 z-20 w-full">
+                          <p className="text-white font-bold text-xs truncate drop-shadow-md">{channel.name}</p>
+                          <p className="text-[9px] text-gray-400 font-medium truncate opacity-0 group-hover:opacity-100 transition-opacity">{channel.category}</p>
+                        </div>
+                        <div className="absolute top-2 right-2 z-20 flex gap-1">
+                          <Sparkles className="w-3 h-3 text-red-500 animate-pulse drop-shadow-[0_0_5px_rgba(239,68,68,0.8)]" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="h-px bg-zinc-800/50 my-6" />
+              </div>
+            )}
+
             {recentlyWatched.length > 0 && selectedCategory === 'All' && !searchQuery && (
               <div className="mb-6 animate-in fade-in slide-in-from-left-2 duration-700">
                 <h4 className="text-gray-500 uppercase text-[10px] font-bold mb-3 flex items-center gap-2">
@@ -2823,7 +2886,13 @@ const DownloadAppModal: React.FC<DownloadAppModalProps> = ({ onClose }) => {
                 </div>
                 <div className="text-[11px] bg-zinc-800/50 rounded-lg p-3 border border-gray-800">
                   <p className="font-bold text-gray-300 mb-1">Full Native App:</p>
-                  <p className="text-gray-400 italic">Export as ZIP &gt; Open 'android' folder in Android Studio.</p>
+                  <p className="text-gray-400 italic mb-2">Connect to Android Studio for professional deployment:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-gray-400">
+                    <li>Go to the <strong>Settings Menu</strong> (top right).</li>
+                    <li>Select <strong>"Export as ZIP"</strong>.</li>
+                    <li>Unzip the file and open the <strong>"android"</strong> folder in Android Studio.</li>
+                    <li>Run on your phone or emulator!</li>
+                  </ol>
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 {
   "name": "Osei TV",
-  "description": "A live TV streaming app with channel selection.",
+  "description": "Osei TV - The ultimate live streaming platform for news, sports, and entertainment. Experience high-quality HLS streams with real-time chat, personalized favorites, and a modern, high-performance interface. Fully cross-platform with PWA and native Android support.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

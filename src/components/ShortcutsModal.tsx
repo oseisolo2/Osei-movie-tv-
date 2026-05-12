@@ -1,4 +1,4 @@
-import { X, Keyboard } from 'lucide-react';
+import { X, Keyboard, Sparkles } from 'lucide-react';
 
 interface ShortcutsModalProps {
   onClose: () => void;
@@ -43,6 +43,13 @@ export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="p-4 bg-black/50 border-t border-gray-800 text-center">
+          <p className="text-[9px] text-gray-500 uppercase tracking-widest font-bold flex items-center justify-center gap-1.5">
+            <Sparkles className="w-2.5 h-2.5 text-red-500" />
+            AI features powered by Google Gemini
+          </p>
         </div>
       </div>
     </div>
